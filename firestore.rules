@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// CATATAN KEAMANAN:
+// Rules di bawah ini mengizinkan SIAPA SAJA yang tahu URL Firestore Anda untuk
+// membaca DAN menulis data members & activities. Ini cukup untuk tim kecil yang
+// saling percaya dan tidak menyimpan data sensitif di papan kegiatan ini.
+//
+// n8n (lewat Service Account/OAuth) TIDAK terpengaruh oleh rules ini — service
+// account punya akses penuh terlepas dari apa isi rules di sini. Rules ini
+// hanya mengatur siapa yang boleh akses lewat SDK browser (web app Anda).
+//
+// Kalau nanti mau lebih aman (misalnya mencegah orang asing mengubah data lewat
+// link publik), bisa ditingkatkan pakai Firebase Authentication (login email/
+// password untuk anggota tim) — tinggal bilang, saya bantu tambahkan.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /members/{memberId} {
+      allow read, write: if true;
+    }
+    match /activities/{activityId} {
+      allow read, write: if true;
+    }
+  }
+}
