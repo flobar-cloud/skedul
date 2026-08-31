@@ -216,6 +216,10 @@ export default function PapanKegiatan() {
     try { await updateDoc(doc(db, "activities", id), patch); }
     catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
   }
+  async function deleteActivity(id) {
+    try { await deleteDoc(doc(db, "activities", id)); }
+    catch (e) { console.error(e); notify("Gagal menghapus kegiatan."); }
+  }
   async function addPhoto(activityId, photo) {
     try { await updateDoc(doc(db, "activities", activityId), { status: "selesai", photos: arrayUnion(photo) }); }
     catch (e) { console.error(e); notify("Gagal mengunggah foto."); }
@@ -392,6 +396,8 @@ export default function PapanKegiatan() {
           member={memberById(activities.find((a) => a.id === detailId)?.assignedMemberId)}
           onClose={() => setDetailId(null)}
           onToggleStatus={(id, status) => updateActivity(id, { status })}
+          onReschedule={(id, date) => updateActivity(id, { date })}
+          onDelete={(id) => { deleteActivity(id); setDetailId(null); notify("Kegiatan dihapus."); }}
           onAddPhoto={(photo) => addPhoto(detailId, photo)}
         />
       )}
@@ -466,8 +472,11 @@ function AddActivityModal({ date, members, onClose, onSave }) {
 }
 
 // ---------- Activity Detail Modal ----------
-function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onAddPhoto }) {
+function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onReschedule, onDelete, onAddPhoto }) {
   const [uploading, setUploading] = useState(false);
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [newDate, setNewDate] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef(null);
   if (!activity) return null;
   const p = posisiColor(member?.posisi);
@@ -502,6 +511,38 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onAddP
               : <PrimaryBtn onClick={() => onToggleStatus(activity.id, "selesai")} style={{ padding: "5px 10px", fontSize: 12 }}><Check size={13} />Tandai selesai</PrimaryBtn>}
           </div>
         </div>
+
+        {activity.status !== "selesai" && (
+          <div className="flex items-center gap-2 flex-wrap" style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 10 }}>
+            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setConfirmDelete(false); }} style={{ padding: "5px 10px", fontSize: 12 }}>
+              Pindah tanggal
+            </GhostBtn>
+            {!confirmDelete ? (
+              <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); }} style={{ padding: "5px 10px", fontSize: 12, borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
+                <Trash2 size={13} /> Batalkan / Hapus
+              </GhostBtn>
+            ) : (
+              <span className="flex items-center gap-2" style={{ fontSize: 12.5, color: COLORS.ink }}>
+                Yakin dihapus?
+                <PrimaryBtn onClick={() => onDelete(activity.id)} style={{ padding: "5px 10px", fontSize: 12, background: STATUS_COLORS.rencana }}>Ya, hapus</PrimaryBtn>
+                <GhostBtn onClick={() => setConfirmDelete(false)} style={{ padding: "5px 10px", fontSize: 12 }}>Batal</GhostBtn>
+              </span>
+            )}
+          </div>
+        )}
+
+        {showReschedule && (
+          <div className="flex items-center gap-2" style={{ background: "#F2ECDD", borderRadius: 8, padding: 10 }}>
+            <input type="date" style={{ ...inputStyle, flex: 1 }} value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+            <PrimaryBtn
+              disabled={!newDate || newDate === activity.date}
+              onClick={() => { onReschedule(activity.id, newDate); setShowReschedule(false); }}
+              style={{ padding: "8px 14px", fontSize: 13 }}
+            >
+              Simpan
+            </PrimaryBtn>
+          </div>
+        )}
 
         {member && (
           <div className="flex items-center gap-2" style={{ fontSize: 13.5, color: COLORS.ink }}>
@@ -619,7 +660,7 @@ function SummaryCharts({ activities, members, cursor }) {
       {monthActs.length === 0 ? (
         <p style={{ fontSize: 13, color: COLORS.inkSoft, fontStyle: "italic" }}>Belum ada kegiatan tercatat pada bulan ini.</p>
       ) : (
-        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
           <div style={chartWrap}>
             <div style={chartTitle}>Berdasarkan Jenis Kegiatan</div>
             <ResponsiveContainer width="100%" height={200}>
