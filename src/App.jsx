@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Camera, Check, Plus, X, Users,
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
-  Info, Pin as PinIcon, Minus, BarChart2
+  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -14,43 +14,35 @@ import {
 
 // ---------- Design tokens ----------
 const COLORS = {
-  frame: "#6B4E33",      // corkboard wooden frame
-  frameDark: "#503A26",
-  board: "#F2ECDD",      // paper/board background
-  boardShadow: "#E4DAC2",
-  ink: "#2B2620",        // primary text
-  inkSoft: "#6B6353",
-  teal: "#1F6F5C",       // primary accent
-  tealDark: "#164F42",
-  coral: "#E8935A",      // today / highlight accent
-  line: "#D8CDB0",
+  bg: "#F8FAFC",         // page background (slate-50)
+  card: "#FFFFFF",
+  border: "#E2E8F0",     // slate-200
+  ink: "#0F172A",        // slate-900
+  inkSoft: "#64748B",    // slate-500
+  primary: "#4F46E5",    // indigo-600
+  primarySoft: "#EEF2FF",// indigo-50
+  primaryDark: "#4338CA",
 };
-const CARD_PALETTE = [
-  { bg: "#F6D776", tape: "#E8C24F" }, // yellow
-  { bg: "#9FD8CB", tape: "#77BFAF" }, // mint
-  { bg: "#F3B8C4", tape: "#E290A2" }, // pink
-  { bg: "#B9CDEB", tape: "#93AEDA" }, // blue
-  { bg: "#E3C6A8", tape: "#CBA57E" }, // tan
+const STATUS_COLORS = { rencana: "#DC2626", selesai: "#059669" }; // red-600 / emerald-600
+const CHIP_PALETTE = [
+  "#4F46E5", // indigo
+  "#059669", // emerald
+  "#D97706", // amber
+  "#DB2777", // pink
+  "#0891B2", // cyan
 ];
-const STATUS_COLORS = { rencana: "#C1443B", selesai: "#3F9142" };
-const JENIS_KEGIATAN_OPSI = ["Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
+const JENIS_KEGIATAN_OPSI = ["Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
-
-function dateKey(y, m, d) {
-  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-function todayKey() {
-  const t = new Date();
-  return dateKey(t.getFullYear(), t.getMonth(), t.getDate());
-}
+function dateKey(y, m, d) { return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
+function todayKey() { const t = new Date(); return dateKey(t.getFullYear(), t.getMonth(), t.getDate()); }
 function posisiColor(posisi) {
   let h = 0;
   for (let i = 0; i < (posisi || "").length; i++) h = (h * 31 + posisi.charCodeAt(i)) >>> 0;
-  return CARD_PALETTE[h % CARD_PALETTE.length];
+  return CHIP_PALETTE[h % CHIP_PALETTE.length];
 }
 function resizeImage(file, maxDim = 900, quality = 0.72) {
   return new Promise((resolve, reject) => {
@@ -77,21 +69,26 @@ function resizeImage(file, maxDim = 900, quality = 0.72) {
 // ---------- Small UI atoms ----------
 function IconBtn({ onClick, children, title, style }) {
   return (
-    <button onClick={onClick} title={title} style={{ border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.ink, ...style }} className="p-1 rounded">
+    <button onClick={onClick} title={title} style={style} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition flex items-center justify-center">
       {children}
     </button>
   );
 }
-function PrimaryBtn({ onClick, children, disabled, style }) {
+function PrimaryBtn({ onClick, children, disabled, style, className = "" }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ background: disabled ? "#9BB8B0" : COLORS.teal, color: "#fff", border: "none", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, letterSpacing: "0.01em", ...style }} className="px-4 py-2 rounded-md text-sm flex items-center gap-2 justify-center">
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={style}
+      className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 justify-center transition shadow-sm ${disabled ? "bg-slate-300 text-white cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700 text-white"} ${className}`}
+    >
       {children}
     </button>
   );
 }
-function GhostBtn({ onClick, children, style }) {
+function GhostBtn({ onClick, children, style, className = "" }) {
   return (
-    <button onClick={onClick} style={{ background: "transparent", border: `1.5px solid ${COLORS.line}`, color: COLORS.ink, fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, ...style }} className="px-4 py-2 rounded-md text-sm flex items-center gap-2 justify-center">
+    <button onClick={onClick} style={style} className={`px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 justify-center transition ${className}`}>
       {children}
     </button>
   );
@@ -99,21 +96,21 @@ function GhostBtn({ onClick, children, style }) {
 function Field({ label, children }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.06em", color: COLORS.inkSoft, textTransform: "uppercase" }}>{label}</span>
+      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</span>
       {children}
     </label>
   );
 }
 const inputStyle = {
-  border: `1.5px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px", fontFamily: "'Inter', sans-serif",
-  fontSize: 14, color: COLORS.ink, background: "#fff", outline: "none",
+  border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 10px",
+  fontSize: 14, color: COLORS.ink, background: "#fff", outline: "none", width: "100%",
 };
 
 // ---------- Modal shell ----------
 function Modal({ onClose, children, width = 480 }) {
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(43,38,32,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#FFFDF8", borderRadius: 14, width: "100%", maxWidth: width, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: width, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
         {children}
       </div>
     </div>
@@ -121,45 +118,51 @@ function Modal({ onClose, children, width = 480 }) {
 }
 function ModalHeader({ title, onClose, icon }) {
   return (
-    <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1.5px solid ${COLORS.line}` }}>
+    <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
       <div className="flex items-center gap-2">
         {icon}
-        <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17, color: COLORS.ink }}>{title}</h3>
+        <h3 className="font-bold text-base text-slate-900">{title}</h3>
       </div>
       <IconBtn onClick={onClose}><X size={18} /></IconBtn>
     </div>
   );
 }
 
-// ---------- Status marker: red "-" circle = rencana, green "✓" circle = selesai ----------
 function StatusMarker({ status, size = 13 }) {
   const color = status === "selesai" ? STATUS_COLORS.selesai : STATUS_COLORS.rencana;
   return (
     <span style={{
       width: size, height: size, borderRadius: "50%", background: color, flexShrink: 0,
-      display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 1px rgba(0,0,0,0.25)",
+      display: "flex", alignItems: "center", justifyContent: "center",
     }} title={status === "selesai" ? "Sudah dilaksanakan" : "Rencana"}>
       {status === "selesai" ? <Check size={size * 0.68} color="#fff" strokeWidth={3} /> : <Minus size={size * 0.68} color="#fff" strokeWidth={3} />}
     </span>
   );
 }
-
-// ---------- Day activity card (pinned note) ----------
-function MiniCard({ activity, rotate, palette }) {
+function StatusBadge({ status }) {
+  const selesai = status === "selesai";
   return (
-    <div style={{
-      background: palette.bg, borderRadius: 4, padding: "3px 6px", fontSize: 10.5,
-      fontFamily: "'Inter', sans-serif", color: COLORS.ink, fontWeight: 600,
-      transform: `rotate(${rotate}deg)`, boxShadow: "0 1px 2px rgba(0,0,0,0.18)",
-      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative",
-    }}>
-      <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 16, height: 7, background: palette.tape, opacity: 0.85, borderRadius: 1 }} />
-      <div className="flex items-center gap-1" style={{ overflow: "hidden" }}>
-        <StatusMarker status={activity.status} size={11} />
-        {activity.time && <span style={{ fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0 }}>{activity.time}</span>}
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{activity.title}</span>
-        {activity.photos?.length > 0 && <Camera size={10} style={{ flexShrink: 0, marginLeft: "auto" }} />}
-      </div>
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium"
+      style={{ background: selesai ? "#D1FAE5" : "#FEE2E2", color: selesai ? "#065F46" : "#991B1B" }}
+    >
+      <StatusMarker status={status} size={11} /> {selesai ? "Selesai" : "Rencana"}
+    </span>
+  );
+}
+
+// ---------- Calendar event chip ----------
+function EventChip({ activity }) {
+  const color = posisiColor(activity._posisi);
+  return (
+    <div
+      className="text-[10px] text-white px-1.5 py-0.5 rounded truncate flex items-center gap-1"
+      style={{ background: color, opacity: activity.status === "selesai" ? 0.55 : 1 }}
+      title={activity.title}
+    >
+      {activity.time && <span className="font-mono flex-shrink-0">{activity.time}</span>}
+      <span className="truncate">{activity.title}</span>
+      {activity.photos?.length > 0 && <Camera size={9} className="flex-shrink-0 ml-auto" />}
     </div>
   );
 }
@@ -169,7 +172,7 @@ export default function PapanKegiatan() {
   const [members, setMembers] = useState([]);
   const [activities, setActivities] = useState([]);
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
-  const [dayModal, setDayModal] = useState(null); // dateKey string
+  const [dayModal, setDayModal] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [showMembers, setShowMembers] = useState(false);
   const [showSim, setShowSim] = useState(false);
@@ -177,25 +180,17 @@ export default function PapanKegiatan() {
   const [toast, setToast] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
 
-  function notify(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2600);
-  }
+  function notify(msg) { setToast(msg); setTimeout(() => setToast(null), 2600); }
 
   useEffect(() => {
     const unsubMembers = onSnapshot(
       collection(db, "members"),
-      (snap) => {
-        setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      },
+      (snap) => setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => { console.error(err); notify("Gagal memuat data anggota dari Firestore."); }
     );
     const unsubActivities = onSnapshot(
       collection(db, "activities"),
-      (snap) => {
-        setActivities(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        setReady(true);
-      },
+      (snap) => { setActivities(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); setReady(true); },
       (err) => { console.error(err); notify("Gagal memuat data kegiatan dari Firestore."); setReady(true); }
     );
     return () => { unsubMembers(); unsubActivities(); };
@@ -230,7 +225,7 @@ export default function PapanKegiatan() {
 
   // ---------- Calendar grid computation ----------
   const first = new Date(cursor.y, cursor.m, 1);
-  const startOffset = (first.getDay() + 6) % 7; // Monday-first
+  const startOffset = (first.getDay() + 6) % 7;
   const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
   const cells = [];
   for (let i = 0; i < startOffset; i++) cells.push(null);
@@ -238,115 +233,98 @@ export default function PapanKegiatan() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   const activitiesByDate = {};
-  activities.forEach((a) => { (activitiesByDate[a.date] ||= []).push(a); });
+  activities.forEach((a) => {
+    const withPosisi = { ...a, _posisi: memberById(a.assignedMemberId)?.posisi };
+    (activitiesByDate[a.date] ||= []).push(withPosisi);
+  });
   Object.values(activitiesByDate).forEach((list) => list.sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99")));
 
+  const todaysActivities = activitiesByDate[todayKey()] || [];
+
   if (!ready) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, fontFamily: "'Space Grotesk', sans-serif", color: COLORS.inkSoft }}>
-        Memuat papan kegiatan…
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center text-slate-400 font-medium">Memuat papan kegiatan…</div>;
   }
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: COLORS.frame, borderRadius: 18, padding: 14, position: "relative" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-        * { box-sizing: border-box; }
-        .pk-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-        .pk-scroll::-webkit-scrollbar-thumb { background: ${COLORS.line}; border-radius: 4px; }
-        .pk-cell:hover { filter: brightness(0.98); }
-        button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid ${COLORS.teal}; outline-offset: 1px; }
-      `}</style>
-
-      {/* Frame texture rim */}
-      <div style={{ background: `repeating-linear-gradient(135deg, ${COLORS.frameDark} 0px, ${COLORS.frameDark} 2px, ${COLORS.frame} 2px, ${COLORS.frame} 6px)`, position: "absolute", inset: 0, borderRadius: 18, opacity: 0.35, pointerEvents: "none" }} />
-
-      <div style={{ background: COLORS.board, borderRadius: 12, padding: "18px 18px 14px", position: "relative", boxShadow: `inset 0 0 0 1px ${COLORS.boardShadow}` }}>
-
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-          <div className="flex items-center gap-3">
-            <div style={{ background: COLORS.teal, color: "#fff", width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, transform: "rotate(-4deg)", boxShadow: "0 3px 6px rgba(0,0,0,0.2)" }}>
-              <PinIcon size={18} />
+    <div className="min-h-screen" style={{ background: COLORS.bg }}>
+      {/* Nav bar */}
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">📅</span>
+              <span className="font-bold text-lg sm:text-xl tracking-tight text-indigo-600">Papan Kegiatan Tim</span>
             </div>
-            <div>
-              <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 21, color: COLORS.ink, lineHeight: 1.1 }}>Papan Kegiatan Tim</h1>
-              <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: COLORS.inkSoft, letterSpacing: "0.03em" }}>terhubung ke WhatsApp gateway (WAHA)</p>
+            <div className="flex items-center gap-2">
+              <IconBtn onClick={() => setShowMembers(true)} title="Sheet Anggota"><Users size={19} /></IconBtn>
+              <IconBtn onClick={() => setShowSim(true)} title="Simulasi WhatsApp"><Smartphone size={19} /></IconBtn>
+              <IconBtn onClick={() => setInfoOpen(true)} title="Cara kerja"><Info size={19} /></IconBtn>
+              <PrimaryBtn onClick={() => setShowAddActivity(todayKey())} className="ml-1">
+                <Plus size={16} /> <span className="hidden sm:inline">Tambah Kegiatan</span>
+              </PrimaryBtn>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <GhostBtn onClick={() => setShowMembers(true)}><Users size={15} /> Anggota</GhostBtn>
-            <PrimaryBtn onClick={() => setShowSim(true)}><MessageCircle size={15} /> Simulasi WhatsApp</PrimaryBtn>
-            <IconBtn onClick={() => setInfoOpen(true)} title="Cara kerja"><Info size={18} color={COLORS.inkSoft} /></IconBtn>
-          </div>
         </div>
+      </nav>
 
-        {/* Month nav */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1">
-            <IconBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><ChevronLeft size={20} /></IconBtn>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17, color: COLORS.ink, minWidth: 170, textAlign: "center" }}>{BULAN[cursor.m]} {cursor.y}</h2>
-            <IconBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><ChevronRight size={20} /></IconBtn>
-          </div>
-          <GhostBtn onClick={() => { const t = new Date(); setCursor({ y: t.getFullYear(), m: t.getMonth() }); }} style={{ padding: "6px 12px" }}>Hari ini</GhostBtn>
-        </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Legend */}
-        <div className="flex items-center gap-3 flex-wrap mb-3" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: COLORS.inkSoft }}>
-          {members.map((m) => {
-            const p = posisiColor(m.posisi);
-            return <span key={m.id} className="flex items-center gap-1"><span style={{ width: 9, height: 9, borderRadius: 2, background: p.bg, display: "inline-block" }} />{m.posisi}</span>;
-          })}
-        </div>
-
-        {/* Weekday header */}
-        <div className="grid grid-cols-7 gap-1.5 mb-1.5">
-          {HARI.map((h) => (
-            <div key={h} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: COLORS.inkSoft, textAlign: "center", fontWeight: 500 }}>{h}</div>
-          ))}
-        </div>
-
-        {/* Calendar grid */}
-        <div className="grid grid-cols-7 gap-1.5" style={{ marginBottom: 22 }}>
-          {cells.map((d, i) => {
-            if (d === null) return <div key={i} style={{ minHeight: 92 }} />;
-            const key = dateKey(cursor.y, cursor.m, d);
-            const dayActs = activitiesByDate[key] || [];
-            const isToday = key === todayKey();
-            return (
-              <div key={i} onClick={() => setDayModal(key)} className="pk-cell" style={{
-                minHeight: 92, background: "#FFFDF8", border: `1px solid ${COLORS.line}`, borderRadius: 8,
-                padding: "5px 5px 6px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 3, position: "relative", overflow: "hidden",
-              }}>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <span style={{
-                    fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 600,
-                    color: isToday ? "#fff" : COLORS.ink, width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
-                    borderRadius: "50%", background: isToday ? COLORS.coral : "transparent",
-                    border: isToday ? `2px solid ${COLORS.coral}` : "none", transform: isToday ? "rotate(-6deg)" : "none",
-                  }}>{d}</span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 3, overflow: "hidden" }}>
-                  {dayActs.slice(0, 2).map((a, idx) => (
-                    <MiniCard key={a.id} activity={a} rotate={idx % 2 === 0 ? -1.5 : 1.5} palette={posisiColor(memberById(a.assignedMemberId)?.posisi)} />
-                  ))}
-                  {dayActs.length > 2 && (
-                    <span style={{ fontSize: 10, color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>+{dayActs.length - 2} lagi</span>
-                  )}
-                </div>
+          {/* LEFT: Calendar */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
+            <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
+              <div className="flex items-center gap-1">
+                <IconBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><ChevronLeft size={18} /></IconBtn>
+                <h2 className="text-lg font-bold text-slate-900 min-w-[150px] text-center">{BULAN[cursor.m]} {cursor.y}</h2>
+                <IconBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><ChevronRight size={18} /></IconBtn>
               </div>
-            );
-          })}
+              <GhostBtn onClick={() => { const t = new Date(); setCursor({ y: t.getFullYear(), m: t.getMonth() }); }}>Hari ini</GhostBtn>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-semibold text-slate-400 mb-2">
+              {HARI.map((h) => <div key={h}>{h}</div>)}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5">
+              {cells.map((d, i) => {
+                if (d === null) return <div key={i} style={{ minHeight: 88 }} />;
+                const key = dateKey(cursor.y, cursor.m, d);
+                const dayActs = activitiesByDate[key] || [];
+                const isToday = key === todayKey();
+                return (
+                  <div
+                    key={i}
+                    onClick={() => setDayModal(key)}
+                    className={`rounded-lg p-1.5 text-left cursor-pointer transition flex flex-col gap-1 ${isToday ? "bg-indigo-50 border-2 border-indigo-500" : "bg-slate-50 hover:bg-slate-100 border border-transparent"}`}
+                    style={{ minHeight: 88 }}
+                  >
+                    <span className={`text-xs font-semibold ${isToday ? "text-indigo-700" : "text-slate-600"}`}>{d}</span>
+                    <div className="flex flex-col gap-1 overflow-hidden">
+                      {dayActs.slice(0, 2).map((a) => <EventChip key={a.id} activity={a} />)}
+                      {dayActs.length > 2 && <span className="text-[10px] text-slate-400 font-medium">+{dayActs.length - 2} lagi</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* RIGHT: sidebar */}
+          <div className="space-y-6">
+            <AgendaHariIni activities={todaysActivities} members={members} onOpen={(id) => setDetailId(id)} />
+            <ResumeAnggota members={members} activities={activities} cursor={cursor} />
+          </div>
         </div>
 
-        <SummaryCharts activities={activities} members={members} cursor={cursor} />
+        {/* Full width summary charts */}
+        <div className="mt-6 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
+          <SummaryCharts activities={activities} members={members} cursor={cursor} />
+        </div>
       </div>
 
       {/* Toast */}
       {toast && (
-        <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: COLORS.tealDark, color: "#fff", padding: "10px 18px", borderRadius: 8, fontFamily: "'Inter', sans-serif", fontSize: 13.5, fontWeight: 500, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", zIndex: 100, display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg z-[100] flex items-center gap-2">
           <Check size={15} /> {toast}
         </div>
       )}
@@ -357,23 +335,22 @@ export default function PapanKegiatan() {
           <ModalHeader title={new Date(dayModal + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} onClose={() => setDayModal(null)} />
           <div className="p-5 flex flex-col gap-3">
             {(activitiesByDate[dayModal] || []).length === 0 && (
-              <p style={{ color: COLORS.inkSoft, fontSize: 14 }}>Belum ada kegiatan pada tanggal ini.</p>
+              <p className="text-slate-400 text-sm">Belum ada kegiatan pada tanggal ini.</p>
             )}
             {(activitiesByDate[dayModal] || []).map((a) => {
               const mem = memberById(a.assignedMemberId);
-              const p = posisiColor(mem?.posisi);
               return (
-                <div key={a.id} onClick={() => { setDetailId(a.id); setDayModal(null); }} style={{ background: p.bg + "55", border: `1.5px solid ${p.tape}`, borderRadius: 10, padding: 12, cursor: "pointer" }}>
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2">
+                <div key={a.id} onClick={() => { setDetailId(a.id); setDayModal(null); }} className="border border-slate-200 rounded-xl p-3 cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/40 transition">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
                       <StatusMarker status={a.status} />
-                      {a.time && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.inkSoft }}>{a.time}</span>}
-                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 14.5, color: COLORS.ink }}>{a.title}</span>
+                      {a.time && <span className="font-mono text-xs text-slate-400 flex-shrink-0">{a.time}</span>}
+                      <span className="font-semibold text-sm text-slate-900 truncate">{a.title}</span>
                     </span>
-                    <span style={{ fontSize: 11, color: a.status === "selesai" ? STATUS_COLORS.selesai : STATUS_COLORS.rencana, fontWeight: 700 }}>{a.status === "selesai" ? "Selesai" : "Rencana"}</span>
+                    <StatusBadge status={a.status} />
                   </div>
-                  <div style={{ fontSize: 12, color: COLORS.inkSoft, marginTop: 3 }}>{mem ? `${mem.name} · ${mem.posisi}` : "Belum ditugaskan"}</div>
-                  {a.photos?.length > 0 && <div style={{ fontSize: 11.5, color: COLORS.inkSoft, marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}><Camera size={12} />{a.photos.length} foto</div>}
+                  <div className="text-xs text-slate-500 mt-1">{mem ? `${mem.name} · ${mem.posisi}` : "Belum ditugaskan"}</div>
+                  {a.photos?.length > 0 && <div className="text-xs text-slate-500 mt-1 flex items-center gap-1"><Camera size={12} />{a.photos.length} foto</div>}
                 </div>
               );
             })}
@@ -382,17 +359,15 @@ export default function PapanKegiatan() {
         </Modal>
       )}
 
-      {/* Add activity modal */}
       {showAddActivity && (
         <AddActivityModal
-          date={showAddActivity}
+          initialDate={showAddActivity}
           members={members}
           onClose={() => setShowAddActivity(false)}
-          onSave={(a) => { addActivity({ ...a, date: showAddActivity, status: "rencana", createdVia: "web" }); setShowAddActivity(false); notify("Kegiatan ditambahkan ke papan."); }}
+          onSave={(a) => { addActivity({ ...a, status: "rencana", createdVia: "web" }); setShowAddActivity(false); notify("Kegiatan ditambahkan ke kalender."); }}
         />
       )}
 
-      {/* Activity detail modal */}
       {detailId && (
         <ActivityDetailModal
           activity={activities.find((a) => a.id === detailId)}
@@ -405,12 +380,10 @@ export default function PapanKegiatan() {
         />
       )}
 
-      {/* Members panel */}
       {showMembers && (
         <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} />
       )}
 
-      {/* WhatsApp simulator */}
       {showSim && (
         <WhatsAppSimModal
           members={members}
@@ -421,21 +394,20 @@ export default function PapanKegiatan() {
         />
       )}
 
-      {/* Info modal */}
       {infoOpen && (
         <Modal onClose={() => setInfoOpen(false)} width={480}>
           <ModalHeader title="Cara kerja sistem" onClose={() => setInfoOpen(false)} icon={<Info size={18} />} />
-          <div className="p-5 flex flex-col gap-3" style={{ fontSize: 13.5, color: COLORS.ink, lineHeight: 1.6 }}>
-            <p>Kalender ini terhubung <b>langsung ke Firestore</b> dan diperbarui secara real-time. Tombol "Simulasi WhatsApp" tetap tersedia untuk uji coba cepat dari web, tapi kegiatan sungguhan biasanya masuk lewat WhatsApp tim.</p>
+          <div className="p-5 flex flex-col gap-3 text-sm text-slate-700 leading-relaxed">
+            <p>Kalender ini terhubung <b>langsung ke Firestore</b> dan diperbarui secara real-time. Tombol "Simulasi WhatsApp" tersedia untuk uji coba cepat dari web, tapi kegiatan sungguhan biasanya masuk lewat WhatsApp tim.</p>
             <p>Alur produksinya:</p>
-            <ol style={{ paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4, listStyle: "decimal" }}>
+            <ol className="pl-4 flex flex-col gap-1 list-decimal">
               <li>Anggota kirim pesan/foto ke nomor WhatsApp tim.</li>
               <li>WAHA menerima pesan lewat <i>webhook</i> dan mengirim ke n8n.</li>
               <li>n8n mencocokkan nomor pengirim dengan data anggota (nama + posisi).</li>
               <li>n8n memproses format pesan (mis. "JADWAL", foto dokumentasi) dan menyimpan ke Firestore.</li>
               <li>Web ini otomatis menampilkan perubahan itu tanpa perlu refresh.</li>
             </ol>
-            <p style={{ color: COLORS.inkSoft }}>Data di papan ini dapat dilihat bersama oleh siapa pun yang membuka tautan web ini.</p>
+            <p className="text-slate-400">Data di papan ini dapat dilihat bersama oleh siapa pun yang membuka tautan web ini.</p>
           </div>
         </Modal>
       )}
@@ -443,8 +415,90 @@ export default function PapanKegiatan() {
   );
 }
 
+// ---------- Sidebar: Agenda Hari Ini ----------
+function AgendaHariIni({ activities, members, onOpen }) {
+  const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+        <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
+          <Smartphone size={16} className="text-indigo-600" /> Agenda Hari Ini
+        </h3>
+        <span className="text-[11px] font-semibold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{todayLabel}</span>
+      </div>
+      {activities.length === 0 ? (
+        <p className="text-sm text-slate-400">Tidak ada kegiatan terjadwal hari ini.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {activities.map((a) => {
+            const mem = members.find((m) => m.id === a.assignedMemberId);
+            const selesai = a.status === "selesai";
+            return (
+              <div key={a.id} onClick={() => onOpen(a.id)} className="p-3 bg-slate-50 rounded-xl border border-slate-100 relative overflow-hidden cursor-pointer hover:bg-slate-100 transition">
+                <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: selesai ? STATUS_COLORS.selesai : STATUS_COLORS.rencana }} />
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    {a.time && <span className="text-xs font-semibold text-indigo-600">{a.time} WIB</span>}
+                    <h4 className="font-semibold text-sm text-slate-900 mt-0.5 truncate">{a.title}</h4>
+                    <p className="text-xs text-slate-500 mt-1 truncate">👤 {mem ? `${mem.name} (${mem.posisi})` : "Belum ditugaskan"}</p>
+                  </div>
+                  <StatusBadge status={a.status} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Sidebar: Resume per Anggota ----------
+function ResumeAnggota({ members, activities, cursor }) {
+  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
+  const monthActs = activities.filter((a) => a.date.startsWith(monthPrefix));
+
+  const rows = members.map((m) => {
+    const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
+    return {
+      id: m.id, name: m.name, posisi: m.posisi,
+      total: mine.length,
+      pending: mine.filter((a) => a.status !== "selesai").length,
+      selesai: mine.filter((a) => a.status === "selesai").length,
+    };
+  });
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+      <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm border-b border-slate-100 pb-3 mb-3">
+        <Users size={16} className="text-indigo-600" /> Resume Anggota — {BULAN[cursor.m]}
+      </h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-400">Belum ada anggota terdaftar.</p>
+      ) : (
+        <div className="flex flex-col divide-y divide-slate-100">
+          {rows.map((r) => (
+            <div key={r.id} className="py-2.5 flex items-center justify-between gap-2 text-sm">
+              <div className="min-w-0">
+                <span className="font-medium text-slate-800">{r.name}</span>
+                <span className="text-slate-400 text-xs ml-1">({r.posisi})</span>
+              </div>
+              <div className="flex items-center gap-2.5 text-[11px] flex-shrink-0 font-medium">
+                <span className="text-slate-500">Total <b className="text-slate-800">{r.total}</b></span>
+                <span style={{ color: STATUS_COLORS.rencana }}>Pending <b>{r.pending}</b></span>
+                <span style={{ color: STATUS_COLORS.selesai }}>Selesai <b>{r.selesai}</b></span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Add Activity Modal ----------
-function AddActivityModal({ date, members, onClose, onSave }) {
+function AddActivityModal({ initialDate, members, onClose, onSave }) {
+  const [date, setDate] = useState(initialDate || todayKey());
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
   const [description, setDescription] = useState("");
@@ -455,13 +509,12 @@ function AddActivityModal({ date, members, onClose, onSave }) {
       <ModalHeader title="Tambah Kegiatan" onClose={onClose} icon={<Plus size={18} />} />
       <div className="p-5 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Judul kegiatan">
-            <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Rapat evaluasi mingguan" />
-          </Field>
-          <Field label="Jam (opsional)">
-            <input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} />
-          </Field>
+          <Field label="Tanggal"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Jam (opsional)"><input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
         </div>
+        <Field label="Judul kegiatan">
+          <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Rapat evaluasi mingguan" />
+        </Field>
         <Field label="Jenis kegiatan">
           <input style={inputStyle} list="jenis-list" value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)} />
           <datalist id="jenis-list">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
@@ -474,7 +527,7 @@ function AddActivityModal({ date, members, onClose, onSave }) {
             {members.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
           </select>
         </Field>
-        <PrimaryBtn disabled={!title.trim()} onClick={() => onSave({ title: title.trim(), time, description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
+        <PrimaryBtn disabled={!title.trim() || !date} onClick={() => onSave({ title: title.trim(), date, time, description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
       </div>
     </Modal>
   );
@@ -489,7 +542,7 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef(null);
   if (!activity) return null;
-  const p = posisiColor(member?.posisi);
+  const chipColor = posisiColor(member?.posisi);
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
@@ -508,48 +561,47 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
       <ModalHeader
         title={<span className="flex items-center gap-2"><StatusMarker status={activity.status} /> {activity.title}</span>}
         onClose={onClose}
-        icon={<span style={{ width: 12, height: 12, borderRadius: 3, background: p.bg, display: "inline-block" }} />}
+        icon={<span style={{ width: 12, height: 12, borderRadius: 4, background: chipColor, display: "inline-block" }} />}
       />
       <div className="p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div style={{ fontSize: 13, color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+          <div className="text-sm text-slate-500 font-mono">
             {new Date(activity.date + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             {activity.time && ` · ${activity.time}`}
           </div>
           <div className="flex items-center gap-2">
             {activity.status === "selesai"
-              ? <GhostBtn onClick={() => onToggleStatus(activity.id, "rencana")} style={{ padding: "5px 10px", fontSize: 12 }}>Tandai belum selesai</GhostBtn>
-              : <PrimaryBtn onClick={() => onToggleStatus(activity.id, "selesai")} style={{ padding: "5px 10px", fontSize: 12 }}><Check size={13} />Tandai selesai</PrimaryBtn>}
+              ? <GhostBtn onClick={() => onToggleStatus(activity.id, "rencana")}>Tandai belum selesai</GhostBtn>
+              : <PrimaryBtn onClick={() => onToggleStatus(activity.id, "selesai")}><Check size={13} />Tandai selesai</PrimaryBtn>}
           </div>
         </div>
 
         {activity.status !== "selesai" && (
-          <div className="flex items-center gap-2 flex-wrap" style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 10 }}>
-            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setNewTime(activity.time || ""); setConfirmDelete(false); }} style={{ padding: "5px 10px", fontSize: 12 }}>
+          <div className="flex items-center gap-2 flex-wrap border-t border-dashed border-slate-200 pt-3">
+            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setNewTime(activity.time || ""); setConfirmDelete(false); }}>
               Ubah jadwal
             </GhostBtn>
             {!confirmDelete ? (
-              <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); }} style={{ padding: "5px 10px", fontSize: 12, borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
+              <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); }} style={{ borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
                 <Trash2 size={13} /> Batalkan / Hapus
               </GhostBtn>
             ) : (
-              <span className="flex items-center gap-2" style={{ fontSize: 12.5, color: COLORS.ink }}>
+              <span className="flex items-center gap-2 text-sm text-slate-800">
                 Yakin dihapus?
-                <PrimaryBtn onClick={() => onDelete(activity.id)} style={{ padding: "5px 10px", fontSize: 12, background: STATUS_COLORS.rencana }}>Ya, hapus</PrimaryBtn>
-                <GhostBtn onClick={() => setConfirmDelete(false)} style={{ padding: "5px 10px", fontSize: 12 }}>Batal</GhostBtn>
+                <PrimaryBtn onClick={() => onDelete(activity.id)} style={{ background: STATUS_COLORS.rencana }}>Ya, hapus</PrimaryBtn>
+                <GhostBtn onClick={() => setConfirmDelete(false)}>Batal</GhostBtn>
               </span>
             )}
           </div>
         )}
 
         {showReschedule && (
-          <div className="flex items-center gap-2 flex-wrap" style={{ background: "#F2ECDD", borderRadius: 8, padding: 10 }}>
+          <div className="flex items-center gap-2 flex-wrap bg-slate-50 rounded-lg p-3">
             <input type="date" style={{ ...inputStyle, flex: 1, minWidth: 140 }} value={newDate} onChange={(e) => setNewDate(e.target.value)} />
             <input type="time" style={{ ...inputStyle, width: 110 }} value={newTime} onChange={(e) => setNewTime(e.target.value)} />
             <PrimaryBtn
               disabled={!newDate || (newDate === activity.date && newTime === (activity.time || ""))}
               onClick={() => { onReschedule(activity.id, newDate, newTime); setShowReschedule(false); }}
-              style={{ padding: "8px 14px", fontSize: 13 }}
             >
               Simpan
             </PrimaryBtn>
@@ -557,33 +609,33 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
         )}
 
         {member && (
-          <div className="flex items-center gap-2" style={{ fontSize: 13.5, color: COLORS.ink }}>
-            <span style={{ background: p.bg, width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 12 }}>{member.name[0]}</span>
+          <div className="flex items-center gap-2 text-sm text-slate-800">
+            <span style={{ background: chipColor }} className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white flex-shrink-0">{member.name[0]}</span>
             <span><b>{member.name}</b> · {member.posisi}</span>
           </div>
         )}
 
-        {activity.description && <p style={{ fontSize: 14, color: COLORS.ink, lineHeight: 1.5 }}>{activity.description}</p>}
+        {activity.description && <p className="text-sm text-slate-700 leading-relaxed">{activity.description}</p>}
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 13.5, color: COLORS.ink, display: "flex", alignItems: "center", gap: 6 }}><ImageIcon size={15} /> Dokumentasi ({activity.photos?.length || 0})</span>
-            <label style={{ cursor: "pointer" }}>
+            <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5"><ImageIcon size={15} /> Dokumentasi ({activity.photos?.length || 0})</span>
+            <label className="cursor-pointer">
               <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
-              <span style={{ fontSize: 12.5, color: COLORS.teal, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>{uploading ? "Mengunggah…" : <><Upload size={13} />Unggah foto</>}</span>
+              <span className="text-xs text-indigo-600 font-semibold flex items-center gap-1">{uploading ? "Mengunggah…" : <><Upload size={13} />Unggah foto</>}</span>
             </label>
           </div>
           {activity.photos?.length > 0 ? (
             <div className="grid grid-cols-3 gap-2">
               {activity.photos.map((ph) => (
-                <div key={ph.id} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: `4px solid #fff`, boxShadow: "0 2px 6px rgba(0,0,0,0.2)", transform: `rotate(${(ph.id.charCodeAt(0) % 5) - 2}deg)` }}>
-                  <img src={ph.dataUrl} alt={ph.caption || activity.title} style={{ width: "100%", height: 90, objectFit: "cover", display: "block" }} />
-                  <div style={{ fontSize: 9.5, color: COLORS.inkSoft, textAlign: "center", padding: "2px 0", fontFamily: "'IBM Plex Mono', monospace" }}>{ph.uploadedBy}</div>
+                <div key={ph.id} className="rounded-lg overflow-hidden border border-slate-200">
+                  <img src={ph.dataUrl} alt={ph.caption || activity.title} className="w-full h-[90px] object-cover block" />
+                  <div className="text-[10px] text-slate-400 text-center py-0.5 font-mono truncate px-1">{ph.uploadedBy}</div>
                 </div>
               ))}
             </div>
           ) : (
-            <p style={{ fontSize: 13, color: COLORS.inkSoft, fontStyle: "italic" }}>Belum ada foto hasil kegiatan.</p>
+            <p className="text-sm text-slate-400 italic">Belum ada foto hasil kegiatan.</p>
           )}
         </div>
       </div>
@@ -600,118 +652,42 @@ function MembersModal({ members, onClose, onAdd, onRemove }) {
     <Modal onClose={onClose} width={460}>
       <ModalHeader title="Sheet Anggota Tim" onClose={onClose} icon={<Users size={18} />} />
       <div className="p-5 flex flex-col gap-4">
-        <div className="flex flex-col gap-2 pk-scroll" style={{ maxHeight: 220, overflowY: "auto" }}>
+        <div className="flex flex-col gap-2 overflow-y-auto" style={{ maxHeight: 220 }}>
           {members.map((m) => {
-            const p = posisiColor(m.posisi);
+            const color = posisiColor(m.posisi);
             return (
-              <div key={m.id} className="flex items-center justify-between" style={{ background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px" }}>
-                <div className="flex items-center gap-2">
-                  <span style={{ width: 10, height: 10, borderRadius: 3, background: p.bg, display: "inline-block" }} />
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13.5, color: COLORS.ink }}>{m.name}</div>
-                    <div style={{ fontSize: 11.5, color: COLORS.inkSoft, display: "flex", alignItems: "center", gap: 4, fontFamily: "'IBM Plex Mono', monospace" }}><Phone size={11} />{m.phone} · {m.posisi}</div>
+              <div key={m.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span style={{ background: color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm text-slate-900 truncate">{m.name}</div>
+                    <div className="text-xs text-slate-500 flex items-center gap-1 font-mono"><Phone size={11} />{m.phone} · {m.posisi}</div>
                   </div>
                 </div>
-                <IconBtn onClick={() => onRemove(m.id)}><Trash2 size={15} color="#B4544A" /></IconBtn>
+                <IconBtn onClick={() => onRemove(m.id)}><Trash2 size={15} className="text-rose-500" /></IconBtn>
               </div>
             );
           })}
-          {members.length === 0 && <p style={{ fontSize: 13, color: COLORS.inkSoft }}>Belum ada anggota.</p>}
+          {members.length === 0 && <p className="text-sm text-slate-400">Belum ada anggota.</p>}
         </div>
-        <div style={{ borderTop: `1.5px solid ${COLORS.line}`, paddingTop: 14 }} className="flex flex-col gap-2">
-          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 13.5 }}>Tambah Anggota</span>
+        <div className="border-t border-slate-200 pt-4 flex flex-col gap-2">
+          <span className="font-bold text-sm text-slate-900">Tambah Anggota</span>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Nama"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} /></Field>
             <Field label="No. WhatsApp"><input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="62812..." /></Field>
           </div>
-          <Field label="Posisi"><select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}><option value="RGE">RGE (eksekutor kegiatan &amp; dokumentasi)</option><option value="CSE">CSE (eksekutor kegiatan di outlet/toko)</option><option value="RSE">RSE (eksekutor kegiatan di outlet/toko)</option><option value="BSM">BSM (Manager / pimpinan branch)</option></select></Field>
+          <Field label="Posisi">
+            <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
+              <option value="RGE">RGE (eksekutor kegiatan &amp; dokumentasi)</option>
+              <option value="CSE">CSE (eksekutor kegiatan di outlet/toko)</option>
+              <option value="RSE">RSE (eksekutor kegiatan di outlet/toko)</option>
+              <option value="BSM">BSM (Manager / pimpinan branch)</option>
+            </select>
+          </Field>
           <PrimaryBtn disabled={!name.trim() || !phone.trim()} onClick={() => { onAdd({ name: name.trim(), phone: phone.trim(), posisi }); setName(""); setPhone(""); setPosisi("RGE"); }}><Plus size={15} />Tambah</PrimaryBtn>
         </div>
       </div>
     </Modal>
-  );
-}
-
-// ---------- Summary charts: by activity type & by member/posisi ----------
-function SummaryCharts({ activities, members, cursor }) {
-  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
-  const monthActs = activities.filter((a) => a.date.startsWith(monthPrefix));
-
-  const byType = {};
-  monthActs.forEach((a) => {
-    const key = a.jenisKegiatan || "Lainnya";
-    byType[key] ||= { name: key, Rencana: 0, Selesai: 0 };
-    byType[key][a.status === "selesai" ? "Selesai" : "Rencana"]++;
-  });
-  const typeData = Object.values(byType);
-
-  const byMember = members.map((m) => {
-    const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
-    return {
-      name: m.name.split(" ")[0],
-      fullName: m.name,
-      Rencana: mine.filter((a) => a.status !== "selesai").length,
-      Selesai: mine.filter((a) => a.status === "selesai").length,
-      total: mine.length,
-    };
-  });
-  const inactiveMembers = byMember.filter((m) => m.total === 0);
-
-  const chartWrap = { background: "#FFFDF8", border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: "14px 14px 6px" };
-  const chartTitle = { fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 13.5, color: COLORS.ink, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 };
-
-  return (
-    <div style={{ borderTop: `1.5px dashed ${COLORS.line}`, paddingTop: 16 }}>
-      <div className="flex items-center gap-2 mb-3">
-        <BarChart2 size={17} color={COLORS.ink} />
-        <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 16, color: COLORS.ink }}>
-          Ringkasan Kegiatan — {BULAN[cursor.m]} {cursor.y}
-        </h3>
-      </div>
-
-      {monthActs.length === 0 ? (
-        <p style={{ fontSize: 13, color: COLORS.inkSoft, fontStyle: "italic" }}>Belum ada kegiatan tercatat pada bulan ini.</p>
-      ) : (
-        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
-          <div style={chartWrap}>
-            <div style={chartTitle}>Berdasarkan Jenis Kegiatan</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={typeData} margin={{ left: -18, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.line} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} interval={0} angle={-15} textAnchor="end" height={40} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div style={chartWrap}>
-            <div style={chartTitle}>Keaktifan per Anggota (Posisi)</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={byMember} margin={{ left: -18, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.line} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} interval={0} angle={-15} textAnchor="end" height={40} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} labelFormatter={(_, p) => p?.[0]?.payload?.fullName || ""} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Rencana" stackId="a" fill={STATUS_COLORS.rencana} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="Selesai" stackId="a" fill={STATUS_COLORS.selesai} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {inactiveMembers.length > 0 && (
-        <div style={{ marginTop: 10, background: "#FBEAE8", border: `1px solid ${STATUS_COLORS.rencana}55`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: COLORS.ink, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <StatusMarker status="rencana" size={12} />
-          <span><b>Belum ada kegiatan bulan ini:</b> {inactiveMembers.map((m) => m.fullName).join(", ")}</span>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -764,11 +740,9 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
       <ModalHeader title="Simulasi Pesan WhatsApp" onClose={onClose} icon={<MessageCircle size={18} />} />
       <div className="px-5 pt-3 flex gap-1">
         {[["jadwal", "Buat Jadwal"], ["upload", "Upload Hasil"]].map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} style={{
-            flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer",
-            background: tab === k ? COLORS.teal : "transparent", color: tab === k ? "#fff" : COLORS.inkSoft,
-            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 13,
-          }}>{label}</button>
+          <button key={k} onClick={() => setTab(k)} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition ${tab === k ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
+            {label}
+          </button>
         ))}
       </div>
 
@@ -791,8 +765,8 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
               <datalist id="jenis-list-sim">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
             </Field>
             <Field label="Catatan (opsional)"><textarea style={{ ...inputStyle, minHeight: 60 }} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-            <div style={{ background: "#DDF3EC", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: COLORS.tealDark, fontFamily: "'IBM Plex Mono', monospace" }}>
-              Pesan terbaca: "JADWAL {date} — {title || "…"}" dari {sender?.name}
+            <div className="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700 font-mono">
+              Pesan terbaca: "JADWAL {date}{time ? ` ${time}` : ""} — {title || "…"}" dari {sender?.name}
             </div>
             <PrimaryBtn disabled={!title.trim() || sending} onClick={sendSchedule}><Send size={15} />{sending ? "Mengirim…" : "Kirim ke Papan"}</PrimaryBtn>
           </>
@@ -805,9 +779,9 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
               </select>
             </Field>
             <Field label="Foto hasil kegiatan">
-              <label style={{ border: `1.5px dashed ${COLORS.line}`, borderRadius: 8, padding: 14, textAlign: "center", cursor: "pointer", color: COLORS.inkSoft, fontSize: 13 }}>
+              <label className="border border-dashed border-slate-300 rounded-lg p-4 text-center cursor-pointer text-slate-500 text-sm block">
                 <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
-                {preview ? <img src={preview} alt="preview" style={{ maxHeight: 120, margin: "0 auto", borderRadius: 6 }} /> : <>Tap untuk pilih foto</>}
+                {preview ? <img src={preview} alt="preview" className="max-h-[120px] mx-auto rounded" /> : <>Tap untuk pilih foto</>}
               </label>
             </Field>
             <Field label="Keterangan foto"><input style={inputStyle} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Contoh: Kegiatan berjalan lancar" /></Field>
@@ -816,5 +790,82 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
         )}
       </div>
     </Modal>
+  );
+}
+
+// ---------- Summary charts: by activity type & by member/posisi ----------
+function SummaryCharts({ activities, members, cursor }) {
+  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
+  const monthActs = activities.filter((a) => a.date.startsWith(monthPrefix));
+
+  const byType = {};
+  monthActs.forEach((a) => {
+    const key = a.jenisKegiatan || "Lainnya";
+    byType[key] ||= { name: key, Rencana: 0, Selesai: 0 };
+    byType[key][a.status === "selesai" ? "Selesai" : "Rencana"]++;
+  });
+  const typeData = Object.values(byType);
+
+  const byMember = members.map((m) => {
+    const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
+    return {
+      name: m.name.split(" ")[0], fullName: m.name,
+      Rencana: mine.filter((a) => a.status !== "selesai").length,
+      Selesai: mine.filter((a) => a.status === "selesai").length,
+      total: mine.length,
+    };
+  });
+  const inactiveMembers = byMember.filter((m) => m.total === 0);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <BarChart2 size={17} className="text-indigo-600" />
+        <h3 className="font-bold text-base text-slate-900">Ringkasan Kegiatan — {BULAN[cursor.m]} {cursor.y}</h3>
+      </div>
+
+      {monthActs.length === 0 ? (
+        <p className="text-sm text-slate-400 italic">Belum ada kegiatan tercatat pada bulan ini.</p>
+      ) : (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+          <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
+            <div className="font-semibold text-sm text-slate-800 mb-2">Berdasarkan Jenis Kegiatan</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={typeData} margin={{ left: -18, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} interval={0} angle={-15} textAnchor="end" height={40} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
+            <div className="font-semibold text-sm text-slate-800 mb-2">Keaktifan per Anggota (Posisi)</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={byMember} margin={{ left: -18, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} interval={0} angle={-15} textAnchor="end" height={40} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} labelFormatter={(_, p) => p?.[0]?.payload?.fullName || ""} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="Rencana" stackId="a" fill={STATUS_COLORS.rencana} />
+                <Bar dataKey="Selesai" stackId="a" fill={STATUS_COLORS.selesai} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {inactiveMembers.length > 0 && (
+        <div className="mt-3 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-sm text-slate-800 flex items-center gap-2 flex-wrap">
+          <StatusMarker status="rencana" size={12} />
+          <span><b>Belum ada kegiatan bulan ini:</b> {inactiveMembers.map((m) => m.fullName).join(", ")}</span>
+        </div>
+      )}
+    </div>
   );
 }
