@@ -156,6 +156,7 @@ function MiniCard({ activity, rotate, palette }) {
       <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 16, height: 7, background: palette.tape, opacity: 0.85, borderRadius: 1 }} />
       <div className="flex items-center gap-1" style={{ overflow: "hidden" }}>
         <StatusMarker status={activity.status} size={11} />
+        {activity.time && <span style={{ fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0 }}>{activity.time}</span>}
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{activity.title}</span>
         {activity.photos?.length > 0 && <Camera size={10} style={{ flexShrink: 0, marginLeft: "auto" }} />}
       </div>
@@ -238,6 +239,7 @@ export default function PapanKegiatan() {
 
   const activitiesByDate = {};
   activities.forEach((a) => { (activitiesByDate[a.date] ||= []).push(a); });
+  Object.values(activitiesByDate).forEach((list) => list.sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99")));
 
   if (!ready) {
     return (
@@ -365,6 +367,7 @@ export default function PapanKegiatan() {
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-2">
                       <StatusMarker status={a.status} />
+                      {a.time && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.inkSoft }}>{a.time}</span>}
                       <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 14.5, color: COLORS.ink }}>{a.title}</span>
                     </span>
                     <span style={{ fontSize: 11, color: a.status === "selesai" ? STATUS_COLORS.selesai : STATUS_COLORS.rencana, fontWeight: 700 }}>{a.status === "selesai" ? "Selesai" : "Rencana"}</span>
@@ -396,7 +399,7 @@ export default function PapanKegiatan() {
           member={memberById(activities.find((a) => a.id === detailId)?.assignedMemberId)}
           onClose={() => setDetailId(null)}
           onToggleStatus={(id, status) => updateActivity(id, { status })}
-          onReschedule={(id, date) => updateActivity(id, { date })}
+          onReschedule={(id, date, time) => updateActivity(id, { date, time })}
           onDelete={(id) => { deleteActivity(id); setDetailId(null); notify("Kegiatan dihapus."); }}
           onAddPhoto={(photo) => addPhoto(detailId, photo)}
         />
@@ -443,6 +446,7 @@ export default function PapanKegiatan() {
 // ---------- Add Activity Modal ----------
 function AddActivityModal({ date, members, onClose, onSave }) {
   const [title, setTitle] = useState("");
+  const [time, setTime] = useState("");
   const [description, setDescription] = useState("");
   const [jenisKegiatan, setJenisKegiatan] = useState(JENIS_KEGIATAN_OPSI[0]);
   const [assignedMemberId, setAssignedMemberId] = useState(members[0]?.id || "");
@@ -450,9 +454,14 @@ function AddActivityModal({ date, members, onClose, onSave }) {
     <Modal onClose={onClose} width={420}>
       <ModalHeader title="Tambah Kegiatan" onClose={onClose} icon={<Plus size={18} />} />
       <div className="p-5 flex flex-col gap-3">
-        <Field label="Judul kegiatan">
-          <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Rapat evaluasi mingguan" />
-        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Judul kegiatan">
+            <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Rapat evaluasi mingguan" />
+          </Field>
+          <Field label="Jam (opsional)">
+            <input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} />
+          </Field>
+        </div>
         <Field label="Jenis kegiatan">
           <input style={inputStyle} list="jenis-list" value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)} />
           <datalist id="jenis-list">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
@@ -465,7 +474,7 @@ function AddActivityModal({ date, members, onClose, onSave }) {
             {members.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
           </select>
         </Field>
-        <PrimaryBtn disabled={!title.trim()} onClick={() => onSave({ title: title.trim(), description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
+        <PrimaryBtn disabled={!title.trim()} onClick={() => onSave({ title: title.trim(), time, description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
       </div>
     </Modal>
   );
@@ -476,6 +485,7 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
   const [uploading, setUploading] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [newDate, setNewDate] = useState("");
+  const [newTime, setNewTime] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef(null);
   if (!activity) return null;
@@ -504,6 +514,7 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div style={{ fontSize: 13, color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
             {new Date(activity.date + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            {activity.time && ` · ${activity.time}`}
           </div>
           <div className="flex items-center gap-2">
             {activity.status === "selesai"
@@ -514,8 +525,8 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
 
         {activity.status !== "selesai" && (
           <div className="flex items-center gap-2 flex-wrap" style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 10 }}>
-            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setConfirmDelete(false); }} style={{ padding: "5px 10px", fontSize: 12 }}>
-              Pindah tanggal
+            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setNewTime(activity.time || ""); setConfirmDelete(false); }} style={{ padding: "5px 10px", fontSize: 12 }}>
+              Ubah jadwal
             </GhostBtn>
             {!confirmDelete ? (
               <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); }} style={{ padding: "5px 10px", fontSize: 12, borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
@@ -532,11 +543,12 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
         )}
 
         {showReschedule && (
-          <div className="flex items-center gap-2" style={{ background: "#F2ECDD", borderRadius: 8, padding: 10 }}>
-            <input type="date" style={{ ...inputStyle, flex: 1 }} value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+          <div className="flex items-center gap-2 flex-wrap" style={{ background: "#F2ECDD", borderRadius: 8, padding: 10 }}>
+            <input type="date" style={{ ...inputStyle, flex: 1, minWidth: 140 }} value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+            <input type="time" style={{ ...inputStyle, width: 110 }} value={newTime} onChange={(e) => setNewTime(e.target.value)} />
             <PrimaryBtn
-              disabled={!newDate || newDate === activity.date}
-              onClick={() => { onReschedule(activity.id, newDate); setShowReschedule(false); }}
+              disabled={!newDate || (newDate === activity.date && newTime === (activity.time || ""))}
+              onClick={() => { onReschedule(activity.id, newDate, newTime); setShowReschedule(false); }}
               style={{ padding: "8px 14px", fontSize: 13 }}
             >
               Simpan
@@ -708,6 +720,7 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
   const [tab, setTab] = useState("jadwal");
   const [senderId, setSenderId] = useState(members[0]?.id || "");
   const [date, setDate] = useState(todayKey());
+  const [time, setTime] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [jenisKegiatan, setJenisKegiatan] = useState(JENIS_KEGIATAN_OPSI[0]);
@@ -731,9 +744,9 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
   async function sendSchedule() {
     setSending(true);
     await new Promise((r) => setTimeout(r, 500));
-    onNewSchedule({ id: uid(), date, title: title.trim(), description, jenisKegiatan, assignedMemberId: senderId, status: "rencana", createdVia: "whatsapp", photos: [] });
+    onNewSchedule({ id: uid(), date, time, title: title.trim(), description, jenisKegiatan, assignedMemberId: senderId, status: "rencana", createdVia: "whatsapp", photos: [] });
     setSending(false);
-    setTitle(""); setDescription("");
+    setTitle(""); setDescription(""); setTime("");
     onClose();
   }
   async function sendUpload() {
@@ -768,7 +781,10 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
 
         {tab === "jadwal" ? (
           <>
-            <Field label="Tanggal kegiatan"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Tanggal kegiatan"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+              <Field label="Jam (opsional)"><input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+            </div>
             <Field label="Judul kegiatan"><input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Kunjungan lapangan" /></Field>
             <Field label="Jenis kegiatan">
               <input style={inputStyle} list="jenis-list-sim" value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)} />
