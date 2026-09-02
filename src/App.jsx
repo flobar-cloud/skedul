@@ -372,9 +372,11 @@ export default function PapanKegiatan() {
         <ActivityDetailModal
           activity={activities.find((a) => a.id === detailId)}
           member={memberById(activities.find((a) => a.id === detailId)?.assignedMemberId)}
+          members={members}
           onClose={() => setDetailId(null)}
           onToggleStatus={(id, status) => updateActivity(id, { status })}
           onReschedule={(id, date, time) => updateActivity(id, { date, time })}
+          onEdit={(id, patch) => { updateActivity(id, patch); notify("Kegiatan diperbarui."); }}
           onDelete={(id) => { deleteActivity(id); setDetailId(null); notify("Kegiatan dihapus."); }}
           onAddPhoto={(photo) => addPhoto(detailId, photo)}
         />
@@ -534,11 +536,16 @@ function AddActivityModal({ initialDate, members, onClose, onSave }) {
 }
 
 // ---------- Activity Detail Modal ----------
-function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onReschedule, onDelete, onAddPhoto }) {
+function ActivityDetailModal({ activity, member, members, onClose, onToggleStatus, onReschedule, onEdit, onDelete, onAddPhoto }) {
   const [uploading, setUploading] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
+  const [showEdit, setShowEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editJenis, setEditJenis] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editMemberId, setEditMemberId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef(null);
   if (!activity) return null;
@@ -578,11 +585,19 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
 
         {activity.status !== "selesai" && (
           <div className="flex items-center gap-2 flex-wrap border-t border-dashed border-slate-200 pt-3">
-            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setNewTime(activity.time || ""); setConfirmDelete(false); }}>
+            <GhostBtn onClick={() => {
+              setShowEdit((v) => !v);
+              setEditTitle(activity.title); setEditJenis(activity.jenisKegiatan || "");
+              setEditDescription(activity.description || ""); setEditMemberId(activity.assignedMemberId || "");
+              setShowReschedule(false); setConfirmDelete(false);
+            }}>
+              Edit Kegiatan
+            </GhostBtn>
+            <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setNewTime(activity.time || ""); setShowEdit(false); setConfirmDelete(false); }}>
               Ubah jadwal
             </GhostBtn>
             {!confirmDelete ? (
-              <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); }} style={{ borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
+              <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); setShowEdit(false); }} style={{ borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
                 <Trash2 size={13} /> Batalkan / Hapus
               </GhostBtn>
             ) : (
@@ -592,6 +607,34 @@ function ActivityDetailModal({ activity, member, onClose, onToggleStatus, onResc
                 <GhostBtn onClick={() => setConfirmDelete(false)}>Batal</GhostBtn>
               </span>
             )}
+          </div>
+        )}
+
+        {showEdit && (
+          <div className="flex flex-col gap-2 bg-slate-50 rounded-lg p-3">
+            <Field label="Judul kegiatan">
+              <input style={inputStyle} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            </Field>
+            <Field label="Jenis kegiatan">
+              <input style={inputStyle} list="jenis-list-edit" value={editJenis} onChange={(e) => setEditJenis(e.target.value)} />
+              <datalist id="jenis-list-edit">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
+            </Field>
+            <Field label="Deskripsi">
+              <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+            </Field>
+            {members && (
+              <Field label="Penanggung jawab">
+                <select style={inputStyle} value={editMemberId} onChange={(e) => setEditMemberId(e.target.value)}>
+                  {members.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
+                </select>
+              </Field>
+            )}
+            <PrimaryBtn
+              disabled={!editTitle.trim()}
+              onClick={() => { onEdit(activity.id, { title: editTitle.trim(), jenisKegiatan: editJenis, description: editDescription, assignedMemberId: editMemberId }); setShowEdit(false); }}
+            >
+              Simpan Perubahan
+            </PrimaryBtn>
           </div>
         )}
 
