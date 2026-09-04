@@ -458,7 +458,7 @@ function AgendaHariIni({ activities, members, onOpen }) {
 // ---------- Sidebar: Resume per Anggota ----------
 function ResumeAnggota({ members, activities, cursor }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
-  const monthActs = activities.filter((a) => a.date.startsWith(monthPrefix));
+  const monthActs = activities.filter((a) => a.date && a.date.startsWith(monthPrefix));
 
   const rows = members.map((m) => {
     const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
@@ -839,7 +839,7 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
 // ---------- Summary charts: by activity type & by member/posisi ----------
 function SummaryCharts({ activities, members, cursor }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
-  const monthActs = activities.filter((a) => a.date.startsWith(monthPrefix));
+  const monthActs = activities.filter((a) => a.date && a.date.startsWith(monthPrefix));
 
   const byType = {};
   monthActs.forEach((a) => {
