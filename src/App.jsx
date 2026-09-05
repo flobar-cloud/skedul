@@ -213,8 +213,8 @@ export default function PapanKegiatan() {
     catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
   }
   async function deleteActivity(id) {
-    try { await deleteDoc(doc(db, "activities", id)); }
-    catch (e) { console.error(e); notify("Gagal menghapus kegiatan."); }
+    try { await deleteDoc(doc(db, "activities", id)); return true; }
+    catch (e) { console.error(e); notify("Gagal menghapus kegiatan: " + (e?.message || "coba lagi.")); return false; }
   }
   async function addPhoto(activityId, photo) {
     try { await updateDoc(doc(db, "activities", activityId), { status: "selesai", photos: arrayUnion(photo) }); }
@@ -320,6 +320,11 @@ export default function PapanKegiatan() {
         <div className="mt-6 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
           <SummaryCharts activities={activities} members={members} cursor={cursor} />
         </div>
+
+        {/* Photo wall */}
+        <div className="mt-6 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
+          <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={(id) => setDetailId(id)} />
+        </div>
       </div>
 
       {/* Toast */}
@@ -377,7 +382,7 @@ export default function PapanKegiatan() {
           onToggleStatus={(id, status) => updateActivity(id, { status })}
           onReschedule={(id, date, time) => updateActivity(id, { date, time })}
           onEdit={(id, patch) => { updateActivity(id, patch); notify("Kegiatan diperbarui."); }}
-          onDelete={(id) => { deleteActivity(id); setDetailId(null); notify("Kegiatan dihapus."); }}
+          onDelete={async (id) => { const ok = await deleteActivity(id); if (ok) { setDetailId(null); notify("Kegiatan dihapus."); } }}
           onAddPhoto={(photo) => addPhoto(detailId, photo)}
         />
       )}
@@ -596,19 +601,22 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
             <GhostBtn onClick={() => { setShowReschedule((v) => !v); setNewDate(activity.date); setNewTime(activity.time || ""); setShowEdit(false); setConfirmDelete(false); }}>
               Ubah jadwal
             </GhostBtn>
-            {!confirmDelete ? (
-              <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); setShowEdit(false); }} style={{ borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
-                <Trash2 size={13} /> Batalkan / Hapus
-              </GhostBtn>
-            ) : (
-              <span className="flex items-center gap-2 text-sm text-slate-800">
-                Yakin dihapus?
-                <PrimaryBtn onClick={() => onDelete(activity.id)} style={{ background: STATUS_COLORS.rencana }}>Ya, hapus</PrimaryBtn>
-                <GhostBtn onClick={() => setConfirmDelete(false)}>Batal</GhostBtn>
-              </span>
-            )}
           </div>
         )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {!confirmDelete ? (
+            <GhostBtn onClick={() => { setConfirmDelete(true); setShowReschedule(false); setShowEdit(false); }} style={{ borderColor: STATUS_COLORS.rencana, color: STATUS_COLORS.rencana }}>
+              <Trash2 size={13} /> Batalkan / Hapus
+            </GhostBtn>
+          ) : (
+            <span className="flex items-center gap-2 text-sm text-slate-800">
+              Yakin dihapus?
+              <PrimaryBtn onClick={() => onDelete(activity.id)} style={{ background: STATUS_COLORS.rencana }}>Ya, hapus</PrimaryBtn>
+              <GhostBtn onClick={() => setConfirmDelete(false)}>Batal</GhostBtn>
+            </span>
+          )}
+        </div>
 
         {showEdit && (
           <div className="flex flex-col gap-2 bg-slate-50 rounded-lg p-3">
@@ -873,30 +881,30 @@ function SummaryCharts({ activities, members, cursor }) {
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
           <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
             <div className="font-semibold text-sm text-slate-800 mb-2">Berdasarkan Jenis Kegiatan</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={typeData} margin={{ left: -18, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} interval={0} angle={-15} textAnchor="end" height={40} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+            <ResponsiveContainer width="100%" height={Math.max(160, typeData.length * 44)}>
+              <BarChart data={typeData} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={110} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[0, 4, 4, 0]} barSize={16} />
+                <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
           <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
             <div className="font-semibold text-sm text-slate-800 mb-2">Keaktifan per Anggota (Posisi)</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={byMember} margin={{ left: -18, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} interval={0} angle={-15} textAnchor="end" height={40} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+            <ResponsiveContainer width="100%" height={Math.max(160, byMember.length * 44)}>
+              <BarChart data={byMember} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={90} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} labelFormatter={(_, p) => p?.[0]?.payload?.fullName || ""} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Rencana" stackId="a" fill={STATUS_COLORS.rencana} />
-                <Bar dataKey="Selesai" stackId="a" fill={STATUS_COLORS.selesai} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Rencana" stackId="a" fill={STATUS_COLORS.rencana} barSize={16} />
+                <Bar dataKey="Selesai" stackId="a" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -907,6 +915,59 @@ function SummaryCharts({ activities, members, cursor }) {
         <div className="mt-3 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-sm text-slate-800 flex items-center gap-2 flex-wrap">
           <StatusMarker status="rencana" size={12} />
           <span><b>Belum ada kegiatan bulan ini:</b> {inactiveMembers.map((m) => m.fullName).join(", ")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Galeri Dokumentasi: post-it wall of photos from WA & web uploads ----------
+function GaleriFoto({ activities, members, cursor, onOpen }) {
+  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
+  const photos = [];
+  activities.forEach((a) => {
+    if (!a.date || !a.date.startsWith(monthPrefix)) return;
+    (a.photos || []).forEach((ph) => {
+      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId });
+    });
+  });
+  photos.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <Camera size={17} className="text-indigo-600" />
+        <h3 className="font-bold text-base text-slate-900">Galeri Dokumentasi — {BULAN[cursor.m]} {cursor.y}</h3>
+      </div>
+      {photos.length === 0 ? (
+        <p className="text-sm text-slate-400 italic">Belum ada foto dokumentasi kegiatan bulan ini.</p>
+      ) : (
+        <div
+          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-8 p-4 rounded-xl"
+          style={{ background: "#F1EDE4", backgroundImage: "repeating-linear-gradient(45deg, rgba(0,0,0,0.015) 0px, rgba(0,0,0,0.015) 1px, transparent 1px, transparent 12px)" }}
+        >
+          {photos.map((ph, i) => {
+            const mem = members.find((m) => m.id === ph.assignedMemberId);
+            const rotate = [-4, 3, -2, 5, -3, 2][i % 6];
+            return (
+              <div
+                key={ph.id}
+                onClick={() => onOpen(ph.activityId)}
+                className="bg-white p-2 pb-3 cursor-pointer transition-transform hover:scale-105 hover:z-10 relative"
+                style={{ transform: `rotate(${rotate}deg)`, boxShadow: "0 3px 8px rgba(0,0,0,0.18)" }}
+              >
+                <div
+                  className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-10 h-4 opacity-80"
+                  style={{ background: "#FDE68A", transform: "rotate(-3deg)" }}
+                />
+                <img src={ph.dataUrl} alt={ph.activityTitle} className="w-full h-28 object-cover" />
+                <div className="mt-2 text-center px-0.5">
+                  <div className="text-[11px] font-semibold text-slate-800 truncate">{ph.activityTitle}</div>
+                  <div className="text-[10px] text-slate-400 truncate">{mem ? `${mem.posisi} ${mem.name}` : ph.uploadedBy}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
