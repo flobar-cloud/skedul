@@ -34,7 +34,30 @@ const CHIP_PALETTE = [
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
-const JENIS_KEGIATAN_OPSI = ["Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
+const JENIS_KEGIATAN_OPSI = ["Attack Desa", "DTU", "Branding", "Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
+
+// Mengelompokkan variasi penulisan jenis kegiatan yang bebas/tidak konsisten (mis. "Attack Desa Seraya",
+// "attack desa marannu") ke dalam kategori baku, berdasarkan kata kunci. Dipakai baik saat kegiatan
+// disimpan (biar rapi ke depannya) maupun saat grafik dihitung (biar data lama yang sudah berantakan
+// ikut terkelompok tanpa perlu diedit manual satu-satu di Firestore).
+const JENIS_KEYWORDS = [
+  { match: ["attack"], label: "Attack Desa" },
+  { match: ["branding", "brending", "brandi"], label: "Branding" },
+  { match: ["dtu"], label: "DTU" },
+  { match: ["rapat", "meeting"], label: "Rapat" },
+  { match: ["kunjungan"], label: "Kunjungan Lapangan" },
+  { match: ["pelatihan", "training"], label: "Pelatihan" },
+  { match: ["distribusi", "logistik"], label: "Distribusi Logistik" },
+  { match: ["briefing"], label: "Briefing" },
+  { match: ["dokumentasi"], label: "Dokumentasi" },
+];
+function normalizeJenisKegiatan(raw) {
+  const t = (raw || "").toLowerCase();
+  for (const { match, label } of JENIS_KEYWORDS) {
+    if (match.some((k) => t.includes(k))) return label;
+  }
+  return (raw || "").trim() || "Lainnya";
+}
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function dateKey(y, m, d) { return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
@@ -185,12 +208,12 @@ export default function PapanKegiatan() {
   useEffect(() => {
     const unsubMembers = onSnapshot(
       collection(db, "members"),
-      (snap) => setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snap) => setMembers(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
       (err) => { console.error(err); notify("Gagal memuat data anggota dari Firestore."); }
     );
     const unsubActivities = onSnapshot(
       collection(db, "activities"),
-      (snap) => { setActivities(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); setReady(true); },
+      (snap) => { setActivities(snap.docs.map((d) => ({ ...d.data(), id: d.id }))); setReady(true); },
       (err) => { console.error(err); notify("Gagal memuat data kegiatan dari Firestore."); setReady(true); }
     );
     return () => { unsubMembers(); unsubActivities(); };
@@ -205,11 +228,14 @@ export default function PapanKegiatan() {
     catch (e) { console.error(e); notify("Gagal menghapus anggota."); }
   }
   async function addActivity(activity) {
-    try { await addDoc(collection(db, "activities"), { ...activity, photos: activity.photos || [] }); }
+    try { await addDoc(collection(db, "activities"), { ...activity, jenisKegiatan: normalizeJenisKegiatan(activity.jenisKegiatan), photos: activity.photos || [] }); }
     catch (e) { console.error(e); notify("Gagal menyimpan kegiatan baru."); }
   }
   async function updateActivity(id, patch) {
-    try { await updateDoc(doc(db, "activities", id), patch); }
+    try {
+      const finalPatch = patch.jenisKegiatan !== undefined ? { ...patch, jenisKegiatan: normalizeJenisKegiatan(patch.jenisKegiatan) } : patch;
+      await updateDoc(doc(db, "activities", id), finalPatch);
+    }
     catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
   }
   async function deleteActivity(id) {
