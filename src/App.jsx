@@ -870,7 +870,7 @@ function MemberRow({ member, onRemove, onEdit }) {
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Branch">
-            <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Contoh: Makassar" />
+            <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Cth: Flores Barat IM3 (CSE/RSE/BSM) atau Flores Barat saja (RGE dual-brand)" />
           </Field>
           <Field label="Posisi">
             <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
@@ -930,7 +930,7 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Branch">
-              <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Contoh: Makassar" />
+              <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Cth: Flores Barat IM3 (CSE/RSE/BSM) atau Flores Barat saja (RGE dual-brand)" />
             </Field>
             <Field label="Posisi">
               <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
@@ -942,7 +942,7 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
             </Field>
           </div>
           <p className="text-xs text-slate-400 -mt-1">
-            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian: BSM hanya menerima info kegiatan dari RGE/CSE/RSE yang branch-nya sama.
+            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian. Untuk CSE/RSE/BSM, isi lengkap wilayah + brand (mis. "Flores Barat IM3") — cuma cocok ke BSM brand itu saja. Untuk RGE yang merangkap 2 brand, isi nama wilayah saja (mis. "Flores Barat" tanpa brand) — otomatis cocok ke SEMUA BSM di wilayah itu (mis. BSM Flores Barat IM3 dan BSM Flores Barat 3ID sekaligus).
           </p>
           <PrimaryBtn
             disabled={!name.trim() || !phone.trim()}
