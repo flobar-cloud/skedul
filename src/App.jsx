@@ -292,6 +292,26 @@ export default function PapanKegiatan() {
     try { await updateDoc(doc(db, "activities", activityId), { status: "selesai", photos: arrayUnion(photo) }); }
     catch (e) { console.error(e); notify("Gagal mengunggah foto."); }
   }
+  async function removePhoto(activityId, photoId) {
+    try {
+      const act = activities.find((a) => a.id === activityId);
+      if (!act) return;
+      const remaining = (act.photos || []).filter((p) => p.id !== photoId);
+      const patch = { photos: remaining };
+      // Kalau foto terakhir dihapus dan kegiatan sebelumnya sudah "selesai", buka lagi otomatis jadi
+      // "rencana" — supaya kegiatan ini kembali dianggap terbuka dan foto baru yang dikirim RGE lewat
+      // WhatsApp bisa tercocokkan ke kegiatan ini (lihat node "Cocokkan Kegiatan by Tanggal Foto" di n8n,
+      // yang hanya mencari di antara kegiatan berstatus "rencana").
+      if (remaining.length === 0 && act.status === "selesai") patch.status = "rencana";
+      await updateDoc(doc(db, "activities", activityId), patch);
+      notify(remaining.length === 0
+        ? 'Foto dihapus. Kegiatan dibuka lagi jadi "Rencana" — minta RGE kirim ulang foto yang relevan lewat WhatsApp.'
+        : "Foto dihapus dari dokumentasi.");
+    } catch (e) {
+      console.error("Gagal menghapus foto", e);
+      notify(`Gagal menghapus foto (${e?.code || "error"}): ${e?.message || "coba lagi."}`);
+    }
+  }
 
   const memberById = (id) => members.find((m) => m.id === id);
 
@@ -472,6 +492,7 @@ export default function PapanKegiatan() {
           onEdit={(id, patch) => { updateActivity(id, patch); notify("Kegiatan diperbarui."); }}
           onDelete={async (id) => { const ok = await deleteActivity(id); if (ok) { setDetailId(null); notify("Kegiatan dihapus."); } }}
           onAddPhoto={(photo) => addPhoto(detailId, photo)}
+          onRemovePhoto={removePhoto}
         />
       )}
 
@@ -631,7 +652,7 @@ function AddActivityModal({ initialDate, members, onClose, onSave }) {
 }
 
 // ---------- Activity Detail Modal ----------
-function ActivityDetailModal({ activity, member, members, onClose, onToggleStatus, onReschedule, onEdit, onDelete, onAddPhoto }) {
+function ActivityDetailModal({ activity, member, members, onClose, onToggleStatus, onReschedule, onEdit, onDelete, onAddPhoto, onRemovePhoto }) {
   const [uploading, setUploading] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [newDate, setNewDate] = useState("");
@@ -767,20 +788,51 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
             </label>
           </div>
           {activity.photos?.length > 0 ? (
-            <div className="grid grid-cols-3 gap-2">
-              {activity.photos.map((ph) => (
-                <div key={ph.id} className="rounded-lg overflow-hidden border border-slate-200">
-                  <img src={ph.dataUrl} alt={ph.caption || activity.title} className="w-full h-[90px] object-cover block" />
-                  <div className="text-[10px] text-slate-400 text-center py-0.5 font-mono truncate px-1">{ph.uploadedBy}</div>
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                {activity.photos.map((ph) => (
+                  <PhotoThumb key={ph.id} photo={ph} onRemove={(photoId) => onRemovePhoto(activity.id, photoId)} />
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Foto tidak relevan/salah kegiatan? Tap ikon 🗑️ di foto untuk menghapusnya, atau langsung unggah foto pengganti dari sini. Kalau foto terakhir dihapus, kegiatan otomatis dibuka lagi jadi "Rencana" supaya RGE bisa kirim ulang lewat WhatsApp.
+              </p>
+            </>
           ) : (
             <p className="text-sm text-slate-400 italic">Belum ada foto hasil kegiatan.</p>
           )}
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Thumbnail dokumentasi dengan tombol hapus + konfirmasi ringkas (dibikin selalu terlihat, bukan
+// cuma muncul saat hover, supaya enak dipakai lewat HP/tablet oleh BSM).
+function PhotoThumb({ photo, onRemove }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <div className="rounded-lg overflow-hidden border border-slate-200 relative">
+      <img src={photo.dataUrl} alt={photo.caption || "dokumentasi"} className="w-full h-[90px] object-cover block" />
+      <div className="text-[10px] text-slate-400 text-center py-0.5 font-mono truncate px-1">{photo.uploadedBy}</div>
+      {!confirm ? (
+        <button
+          onClick={() => setConfirm(true)}
+          title="Hapus foto ini (tidak relevan / salah kegiatan)"
+          className="absolute top-1 right-1 bg-white/90 hover:bg-rose-50 text-rose-500 rounded-full p-1 shadow-sm"
+        >
+          <Trash2 size={12} />
+        </button>
+      ) : (
+        <div className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center gap-1 p-1">
+          <span className="text-[10px] text-slate-700 text-center leading-tight">Hapus foto ini?</span>
+          <div className="flex gap-1">
+            <button onClick={() => onRemove(photo.id)} className="text-[10px] bg-rose-500 text-white rounded px-1.5 py-0.5">Hapus</button>
+            <button onClick={() => setConfirm(false)} className="text-[10px] bg-slate-200 text-slate-700 rounded px-1.5 py-0.5">Batal</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
