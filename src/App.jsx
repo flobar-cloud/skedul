@@ -24,6 +24,12 @@ const COLORS = {
   primaryDark: "#4338CA",
 };
 const STATUS_COLORS = { rencana: "#DC2626", selesai: "#059669" }; // red-600 / emerald-600
+// Warna pastel untuk kalender: dipakai supaya sekilas kelihatan mana yang sudah dieksekusi (biru)
+// dan mana yang masih rencana (orange), terpisah dari warna posisi/anggota (CHIP_PALETTE di bawah).
+const STATUS_PASTEL = {
+  rencana: { bg: "#FFEDD5", text: "#9A3412", border: "#FDBA74" },  // orange-100 / orange-800 / orange-300
+  selesai: { bg: "#DBEAFE", text: "#1E40AF", border: "#93C5FD" },  // blue-100 / blue-800 / blue-300
+};
 const CHIP_PALETTE = [
   "#4F46E5", // indigo
   "#059669", // emerald
@@ -34,16 +40,29 @@ const CHIP_PALETTE = [
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
-const JENIS_KEGIATAN_OPSI = ["Attack Desa", "DTU", "Branding", "Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
+const JENIS_KEGIATAN_OPSI = ["Attack Desa", "Attack Sekolah", "DTU", "Branding", "Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
 
 // Mengelompokkan variasi penulisan jenis kegiatan yang bebas/tidak konsisten (mis. "Attack Desa Seraya",
-// "attack desa marannu") ke dalam kategori baku, berdasarkan kata kunci. Dipakai baik saat kegiatan
-// disimpan (biar rapi ke depannya) maupun saat grafik dihitung (biar data lama yang sudah berantakan
-// ikut terkelompok tanpa perlu diedit manual satu-satu di Firestore).
+// "attack desa marannu", "pasang matpro toko Sinar Jaya") ke dalam kategori baku berdasarkan kata kunci,
+// supaya nama lokasi yang berbeda-beda di judul tidak membuat grafik pecah jadi banyak baris sendiri-sendiri.
+// Dipakai baik saat kegiatan disimpan (addActivity/updateActivity, biar rapi ke depannya) maupun saat
+// grafik dihitung (SummaryCharts, biar data lama yang sudah berantakan di Firestore ikut terkelompok
+// tanpa perlu diedit manual satu-satu).
+//
+// PENTING: urutan array ini disengaja — kategori yang lebih spesifik diletakkan lebih dulu. Contoh:
+// "Attack Sekolah" harus dicek sebelum "Attack Desa", supaya judul seperti "Attack Sekolah Marannu"
+// tidak keburu ketangkap kata kunci umum "attack" dan salah masuk ke kategori Attack Desa.
 const JENIS_KEYWORDS = [
+  { match: ["attack sekolah", "attack school", "sekolah", "school"], label: "Attack Sekolah" },
   { match: ["attack"], label: "Attack Desa" },
-  { match: ["branding", "brending", "brandi"], label: "Branding" },
-  { match: ["dtu"], label: "DTU" },
+  {
+    match: [
+      "branding", "brending", "brandi", "matpro", "poster", "shopsign", "shop sign",
+      "pengukuran shopsign", "pengukuran shop sign", "spanduk", "rontek", "pemasangan",
+    ],
+    label: "Branding",
+  },
+  { match: ["dtu", "direct to user"], label: "DTU" },
   { match: ["rapat", "meeting"], label: "Rapat" },
   { match: ["kunjungan"], label: "Kunjungan Lapangan" },
   { match: ["pelatihan", "training"], label: "Pelatihan" },
@@ -175,13 +194,19 @@ function StatusBadge({ status }) {
 }
 
 // ---------- Calendar event chip ----------
+// Warna latar chip mengikuti STATUS (orange pastel = rencana, biru pastel = selesai) supaya sekilas
+// kelihatan mana yang sudah dieksekusi. Warna anggota/posisi (CHIP_PALETTE) dipindah jadi aksen garis
+// kiri saja, tidak lagi jadi warna dominan — sebelumnya semua chip ikut warna posisi sehingga banyak
+// yang kelihatan "orange semua" dan sulit dibedakan status-nya.
 function EventChip({ activity }) {
-  const color = posisiColor(activity._posisi);
+  const memberColor = posisiColor(activity._posisi);
+  const selesai = activity.status === "selesai";
+  const tone = selesai ? STATUS_PASTEL.selesai : STATUS_PASTEL.rencana;
   return (
     <div
-      className="text-[10px] text-white px-1.5 py-0.5 rounded truncate flex items-center gap-1"
-      style={{ background: color, opacity: activity.status === "selesai" ? 0.55 : 1 }}
-      title={activity.title}
+      className="text-[10px] px-1.5 py-0.5 rounded truncate flex items-center gap-1 font-medium"
+      style={{ background: tone.bg, color: tone.text, borderLeft: `3px solid ${memberColor}` }}
+      title={`${activity.title} — ${selesai ? "Sudah dilaksanakan" : "Rencana"}`}
     >
       {activity.time && <span className="font-mono flex-shrink-0">{activity.time}</span>}
       <span className="truncate">{activity.title}</span>
@@ -239,8 +264,25 @@ export default function PapanKegiatan() {
     catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
   }
   async function deleteActivity(id) {
-    try { await deleteDoc(doc(db, "activities", id)); return true; }
-    catch (e) { console.error(e); notify("Gagal menghapus kegiatan: " + (e?.message || "coba lagi.")); return false; }
+    // Beberapa kegiatan lama (mis. yang masuk lewat n8n/WhatsApp) kadang punya id dengan spasi
+    // nyangkut di depan/belakang — trim dulu supaya path Firestore-nya tepat sasaran.
+    const cleanId = String(id || "").trim();
+    if (!cleanId) { notify("Gagal menghapus: ID kegiatan tidak valid/kosong."); return false; }
+    try {
+      await deleteDoc(doc(db, "activities", cleanId));
+      return true;
+    } catch (e) {
+      console.error("Gagal menghapus kegiatan", cleanId, e);
+      // Dokumen sudah tidak ada di Firestore (mis. sudah kehapus dari sisi lain) — anggap sukses
+      // saja daripada bikin kegiatan itu nyangkut selamanya di kalender.
+      if (e?.code === "not-found") return true;
+      // Kalau masih gagal, ini HAMPIR SELALU soal Firestore Security Rules yang menolak operasi
+      // "delete" pada koleksi "activities" (bukan bug di tombolnya). Kode error asli ditampilkan
+      // di toast supaya langsung ketahuan: kalau munculnya "permission-denied", perbaiki rules-nya,
+      // bukan kode web ini.
+      notify(`Gagal menghapus (${e?.code || "error"}): ${e?.message || "coba lagi."}`);
+      return false;
+    }
   }
   async function addPhoto(activityId, photo) {
     try { await updateDoc(doc(db, "activities", activityId), { status: "selesai", photos: arrayUnion(photo) }); }
@@ -304,6 +346,10 @@ export default function PapanKegiatan() {
                 <h2 className="text-lg font-bold text-slate-900 min-w-[150px] text-center">{BULAN[cursor.m]} {cursor.y}</h2>
                 <IconBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><ChevronRight size={18} /></IconBtn>
               </div>
+              <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: STATUS_PASTEL.rencana.bg, border: `1px solid ${STATUS_PASTEL.rencana.border}` }} /> Rencana</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: STATUS_PASTEL.selesai.bg, border: `1px solid ${STATUS_PASTEL.selesai.border}` }} /> Selesai</span>
+              </div>
               <GhostBtn onClick={() => { const t = new Date(); setCursor({ y: t.getFullYear(), m: t.getMonth() }); }}>Hari ini</GhostBtn>
             </div>
 
@@ -317,12 +363,24 @@ export default function PapanKegiatan() {
                 const key = dateKey(cursor.y, cursor.m, d);
                 const dayActs = activitiesByDate[key] || [];
                 const isToday = key === todayKey();
+                // Tone box tanggal: biru pastel kalau SEMUA kegiatan hari itu sudah selesai, orange
+                // pastel kalau semuanya masih rencana, gradient kalau campuran — supaya sekilas lihat
+                // kalender langsung kelihatan tanggal mana yang sudah dieksekusi tanpa buka satu-satu.
+                const doneCount = dayActs.filter((a) => a.status === "selesai").length;
+                const dayTone = dayActs.length === 0
+                  ? "bg-slate-50 hover:bg-slate-100 border border-transparent"
+                  : "border hover:brightness-95";
+                const dayToneStyle = dayActs.length === 0 ? {} : doneCount === dayActs.length
+                  ? { background: STATUS_PASTEL.selesai.bg, borderColor: STATUS_PASTEL.selesai.border }
+                  : doneCount === 0
+                  ? { background: STATUS_PASTEL.rencana.bg, borderColor: STATUS_PASTEL.rencana.border }
+                  : { background: `linear-gradient(135deg, ${STATUS_PASTEL.rencana.bg} 0%, ${STATUS_PASTEL.rencana.bg} 50%, ${STATUS_PASTEL.selesai.bg} 50%, ${STATUS_PASTEL.selesai.bg} 100%)`, borderColor: STATUS_PASTEL.selesai.border };
                 return (
                   <div
                     key={i}
                     onClick={() => setDayModal(key)}
-                    className={`rounded-lg p-1.5 text-left cursor-pointer transition flex flex-col gap-1 ${isToday ? "bg-indigo-50 border-2 border-indigo-500" : "bg-slate-50 hover:bg-slate-100 border border-transparent"}`}
-                    style={{ minHeight: 88 }}
+                    className={`rounded-lg p-1.5 text-left cursor-pointer transition flex flex-col gap-1 ${isToday ? "bg-indigo-50 border-2 border-indigo-500" : dayTone}`}
+                    style={{ minHeight: 88, ...(isToday ? {} : dayToneStyle) }}
                   >
                     <span className={`text-xs font-semibold ${isToday ? "text-indigo-700" : "text-slate-600"}`}>{d}</span>
                     <div className="flex flex-col gap-1 overflow-hidden">
@@ -491,7 +549,9 @@ function ResumeAnggota({ members, activities, cursor }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
   const monthActs = activities.filter((a) => a.date && a.date.startsWith(monthPrefix));
 
-  const rows = members.map((m) => {
+  // BSM tidak ikut direkap sebagai eksekutor — resume ini hanya untuk RGE/CSE/RSE.
+  const executorMembers = members.filter((m) => String(m.posisi || "").toUpperCase() !== "BSM");
+  const rows = executorMembers.map((m) => {
     const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
     return {
       id: m.id, name: m.name, posisi: m.posisi,
@@ -877,13 +937,18 @@ function SummaryCharts({ activities, members, cursor }) {
 
   const byType = {};
   monthActs.forEach((a) => {
-    const key = a.jenisKegiatan || "Lainnya";
+    // Dinormalisasi lagi di sini (bukan cuma saat disimpan) supaya data lama yang judul jenisnya
+    // masih berantakan (mis. tersimpan sebelum aturan pengelompokan ini ada) tetap ikut terkelompok.
+    const key = normalizeJenisKegiatan(a.jenisKegiatan);
     byType[key] ||= { name: key, Rencana: 0, Selesai: 0 };
     byType[key][a.status === "selesai" ? "Selesai" : "Rencana"]++;
   });
   const typeData = Object.values(byType);
 
-  const byMember = members.map((m) => {
+  // BSM adalah pemberi perintah/manager, bukan eksekutor kegiatan — jadi tidak ikut dihitung di
+  // grafik keaktifan maupun notice "belum ada kegiatan" di bawahnya. Yang muncul hanya RGE/CSE/RSE.
+  const executorMembers = members.filter((m) => String(m.posisi || "").toUpperCase() !== "BSM");
+  const byMember = executorMembers.map((m) => {
     const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
     return {
       name: m.name.split(" ")[0], fullName: m.name,
@@ -907,32 +972,38 @@ function SummaryCharts({ activities, members, cursor }) {
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
           <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
             <div className="font-semibold text-sm text-slate-800 mb-2">Berdasarkan Jenis Kegiatan</div>
-            <ResponsiveContainer width="100%" height={Math.max(160, typeData.length * 44)}>
-              <BarChart data={typeData} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={110} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[0, 4, 4, 0]} barSize={16} />
-                <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
-              </BarChart>
-            </ResponsiveContainer>
+            {/* Tinggi area dibatasi (maxHeight + overflow) supaya kartu tidak memanjang ke bawah
+                walau jenis kegiatannya banyak — kalau melebihi, tinggal scroll di dalam kotak ini. */}
+            <div style={{ maxHeight: 320, overflowY: typeData.length > 7 ? "auto" : "visible" }}>
+              <ResponsiveContainer width="100%" height={Math.max(160, typeData.length * 40)}>
+                <BarChart data={typeData} layout="vertical" margin={{ left: 8, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={110} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[0, 4, 4, 0]} barSize={16} />
+                  <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
-            <div className="font-semibold text-sm text-slate-800 mb-2">Keaktifan per Anggota (Posisi)</div>
-            <ResponsiveContainer width="100%" height={Math.max(160, byMember.length * 44)}>
-              <BarChart data={byMember} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={90} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} labelFormatter={(_, p) => p?.[0]?.payload?.fullName || ""} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Rencana" stackId="a" fill={STATUS_COLORS.rencana} barSize={16} />
-                <Bar dataKey="Selesai" stackId="a" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="font-semibold text-sm text-slate-800 mb-2">Keaktifan per Anggota (RGE/CSE/RSE)</div>
+            <div style={{ maxHeight: 320, overflowY: byMember.length > 7 ? "auto" : "visible" }}>
+              <ResponsiveContainer width="100%" height={Math.max(160, byMember.length * 40)}>
+                <BarChart data={byMember} layout="vertical" margin={{ left: 8, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={90} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} labelFormatter={(_, p) => p?.[0]?.payload?.fullName || ""} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Rencana" stackId="a" fill={STATUS_COLORS.rencana} barSize={16} />
+                  <Bar dataKey="Selesai" stackId="a" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       )}
