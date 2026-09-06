@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Camera, Check, Plus, X, Users,
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
-  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone
+  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -62,7 +62,7 @@ const JENIS_KEYWORDS = [
     ],
     label: "Branding",
   },
-  { match: ["dtu", "direct to user"], label: "DTU" },
+  { match: ["dtu", "direct to user", "direct selling"], label: "DTU" },
   { match: ["rapat", "meeting"], label: "Rapat" },
   { match: ["kunjungan"], label: "Kunjungan Lapangan" },
   { match: ["pelatihan", "training"], label: "Pelatihan" },
@@ -247,6 +247,10 @@ export default function PapanKegiatan() {
   async function addMember(member) {
     try { await addDoc(collection(db, "members"), member); }
     catch (e) { console.error(e); notify("Gagal menyimpan anggota baru."); }
+  }
+  async function updateMember(id, patch) {
+    try { await updateDoc(doc(db, "members", id), patch); }
+    catch (e) { console.error(e); notify("Gagal memperbarui anggota."); }
   }
   async function removeMember(id) {
     try { await deleteDoc(doc(db, "members", id)); }
@@ -472,7 +476,7 @@ export default function PapanKegiatan() {
       )}
 
       {showMembers && (
-        <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} />
+        <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} onEdit={updateMember} />
       )}
 
       {showSim && (
@@ -781,30 +785,89 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
 }
 
 // ---------- Members Modal ----------
-function MembersModal({ members, onClose, onAdd, onRemove }) {
+// Baris anggota bisa masuk mode "edit" sendiri-sendiri (nama, no. HP, branch, posisi) — dipisah jadi
+// komponen sendiri supaya tiap baris punya state form edit masing-masing tanpa saling bentrok.
+function MemberRow({ member, onRemove, onEdit }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(member.name || "");
+  const [phone, setPhone] = useState(member.phone || "");
+  const [branch, setBranch] = useState(member.branch || "");
+  const [posisi, setPosisi] = useState(member.posisi || "RGE");
+  const [saving, setSaving] = useState(false);
+  const color = posisiColor(member.posisi);
+
+  function startEdit() {
+    setName(member.name || ""); setPhone(member.phone || "");
+    setBranch(member.branch || ""); setPosisi(member.posisi || "RGE");
+    setEditing(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    await onEdit(member.id, { name: name.trim(), phone: phone.trim(), branch: branch.trim(), posisi });
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2.5 flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Nama"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="No. WhatsApp"><input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="62812..." /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Branch">
+            <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Contoh: Makassar" />
+          </Field>
+          <Field label="Posisi">
+            <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
+              <option value="RGE">RGE</option>
+              <option value="CSE">CSE</option>
+              <option value="RSE">RSE</option>
+              <option value="BSM">BSM</option>
+            </select>
+          </Field>
+        </div>
+        <div className="flex items-center gap-2 justify-end">
+          <GhostBtn onClick={() => setEditing(false)}>Batal</GhostBtn>
+          <PrimaryBtn disabled={!name.trim() || !phone.trim() || saving} onClick={save}>{saving ? "Menyimpan…" : "Simpan"}</PrimaryBtn>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span style={{ background: color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
+        <div className="min-w-0">
+          <div className="font-semibold text-sm text-slate-900 truncate">{member.name}</div>
+          <div className="text-xs text-slate-500 flex items-center gap-1 font-mono flex-wrap">
+            <Phone size={11} />{member.phone} · {member.posisi}
+            {member.branch && <span className="flex items-center gap-0.5"><Building2 size={11} />{member.branch}</span>}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center flex-shrink-0">
+        <IconBtn onClick={startEdit} title="Edit anggota"><Pencil size={15} /></IconBtn>
+        <IconBtn onClick={() => onRemove(member.id)} title="Hapus anggota"><Trash2 size={15} className="text-rose-500" /></IconBtn>
+      </div>
+    </div>
+  );
+}
+
+function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [branch, setBranch] = useState("");
   const [posisi, setPosisi] = useState("RGE");
   return (
     <Modal onClose={onClose} width={460}>
       <ModalHeader title="Sheet Anggota Tim" onClose={onClose} icon={<Users size={18} />} />
       <div className="p-5 flex flex-col gap-4">
-        <div className="flex flex-col gap-2 overflow-y-auto" style={{ maxHeight: 220 }}>
-          {members.map((m) => {
-            const color = posisiColor(m.posisi);
-            return (
-              <div key={m.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span style={{ background: color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-sm text-slate-900 truncate">{m.name}</div>
-                    <div className="text-xs text-slate-500 flex items-center gap-1 font-mono"><Phone size={11} />{m.phone} · {m.posisi}</div>
-                  </div>
-                </div>
-                <IconBtn onClick={() => onRemove(m.id)}><Trash2 size={15} className="text-rose-500" /></IconBtn>
-              </div>
-            );
-          })}
+        <div className="flex flex-col gap-2 overflow-y-auto" style={{ maxHeight: 320 }}>
+          {members.map((m) => <MemberRow key={m.id} member={m} onRemove={onRemove} onEdit={onEdit} />)}
           {members.length === 0 && <p className="text-sm text-slate-400">Belum ada anggota.</p>}
         </div>
         <div className="border-t border-slate-200 pt-4 flex flex-col gap-2">
@@ -813,15 +876,28 @@ function MembersModal({ members, onClose, onAdd, onRemove }) {
             <Field label="Nama"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} /></Field>
             <Field label="No. WhatsApp"><input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="62812..." /></Field>
           </div>
-          <Field label="Posisi">
-            <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
-              <option value="RGE">RGE (eksekutor kegiatan &amp; dokumentasi)</option>
-              <option value="CSE">CSE (eksekutor kegiatan di outlet/toko)</option>
-              <option value="RSE">RSE (eksekutor kegiatan di outlet/toko)</option>
-              <option value="BSM">BSM (Manager / pimpinan branch)</option>
-            </select>
-          </Field>
-          <PrimaryBtn disabled={!name.trim() || !phone.trim()} onClick={() => { onAdd({ name: name.trim(), phone: phone.trim(), posisi }); setName(""); setPhone(""); setPosisi("RGE"); }}><Plus size={15} />Tambah</PrimaryBtn>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Branch">
+              <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Contoh: Makassar" />
+            </Field>
+            <Field label="Posisi">
+              <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
+                <option value="RGE">RGE (eksekutor kegiatan &amp; dokumentasi)</option>
+                <option value="CSE">CSE (eksekutor kegiatan di outlet/toko)</option>
+                <option value="RSE">RSE (eksekutor kegiatan di outlet/toko)</option>
+                <option value="BSM">BSM (Manager / pimpinan branch)</option>
+              </select>
+            </Field>
+          </div>
+          <p className="text-xs text-slate-400 -mt-1">
+            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian: BSM hanya menerima info kegiatan dari RGE/CSE/RSE yang branch-nya sama.
+          </p>
+          <PrimaryBtn
+            disabled={!name.trim() || !phone.trim()}
+            onClick={() => { onAdd({ name: name.trim(), phone: phone.trim(), branch: branch.trim(), posisi }); setName(""); setPhone(""); setBranch(""); setPosisi("RGE"); }}
+          >
+            <Plus size={15} />Tambah
+          </PrimaryBtn>
         </div>
       </div>
     </Modal>
