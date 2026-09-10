@@ -78,6 +78,19 @@ function normalizeJenisKegiatan(raw) {
   return (raw || "").trim() || "Lainnya";
 }
 
+// Menentukan form "Hasil Kegiatan" mana yang relevan untuk suatu jenis kegiatan — dipakai supaya
+// isian di modal detail kegiatan sama persis dengan format yang dipakai bot WhatsApp (lihat n8n:
+// fungsi kategoriHasil di node "Cek & Susun Aksi Hasil Kegiatan" / "Cek & Proses Balasan Hasil Kegiatan").
+// - "jualan": Attack Desa, Attack Sekolah, DTU -> Jualan SP IM3 / SP 3ID / Hifi
+// - "branding": Branding -> Pasang poster / shopblind / Branding vinil / spanduk / rontek
+// - null: jenis kegiatan lain (Rapat, Kunjungan, dst) tidak punya form hasil
+function kategoriHasil(jenisKegiatanRaw) {
+  const label = normalizeJenisKegiatan(jenisKegiatanRaw);
+  if (label === "Branding") return "branding";
+  if (label === "Attack Desa" || label === "Attack Sekolah" || label === "DTU") return "jualan";
+  return null;
+}
+
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function dateKey(y, m, d) { return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
 function todayKey() { const t = new Date(); return dateKey(t.getFullYear(), t.getMonth(), t.getDate()); }
@@ -663,9 +676,52 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
   const [editDescription, setEditDescription] = useState("");
   const [editMemberId, setEditMemberId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [hasilSpIM3, setHasilSpIM3] = useState("");
+  const [hasilSp3ID, setHasilSp3ID] = useState("");
+  const [hasilHifi, setHasilHifi] = useState("");
+  const [hasilPoster, setHasilPoster] = useState("");
+  const [hasilShopblind, setHasilShopblind] = useState("");
+  const [hasilVinil, setHasilVinil] = useState("");
+  const [hasilSpanduk, setHasilSpanduk] = useState("");
+  const [hasilRontek, setHasilRontek] = useState("");
+  const [savingHasil, setSavingHasil] = useState(false);
   const fileRef = useRef(null);
+  const kategoriHasilAktif = kategoriHasil(activity?.jenisKegiatan);
+
+  // Sinkron ulang form "Hasil Kegiatan" tiap kali kegiatan yang dibuka berganti (mis. lompat dari
+  // satu kegiatan ke kegiatan lain lewat modal hari) supaya tidak nyangkut nilai kegiatan sebelumnya.
+  useEffect(() => {
+    setHasilSpIM3(activity?.hasil?.spIM3 ?? "");
+    setHasilSp3ID(activity?.hasil?.sp3ID ?? "");
+    setHasilHifi(activity?.hasil?.hifi ?? "");
+    setHasilPoster(activity?.hasil?.poster ?? "");
+    setHasilShopblind(activity?.hasil?.shopblind ?? "");
+    setHasilVinil(activity?.hasil?.vinil ?? "");
+    setHasilSpanduk(activity?.hasil?.spanduk ?? "");
+    setHasilRontek(activity?.hasil?.rontek ?? "");
+  }, [activity?.id]);
+
   if (!activity) return null;
   const chipColor = posisiColor(member?.posisi);
+
+  async function saveHasil() {
+    setSavingHasil(true);
+    const hasil = kategoriHasilAktif === "branding"
+      ? {
+          poster: Number(hasilPoster) || 0,
+          shopblind: Number(hasilShopblind) || 0,
+          vinil: Number(hasilVinil) || 0,
+          spanduk: Number(hasilSpanduk) || 0,
+          rontek: Number(hasilRontek) || 0,
+        }
+      : {
+          spIM3: Number(hasilSpIM3) || 0,
+          sp3ID: Number(hasilSp3ID) || 0,
+          hifi: Number(hasilHifi) || 0,
+        };
+    await onEdit(activity.id, { hasil });
+    setSavingHasil(false);
+  }
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
@@ -778,6 +834,48 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
         )}
 
         {activity.description && <p className="text-sm text-slate-700 leading-relaxed">{activity.description}</p>}
+
+        {kategoriHasilAktif && (
+          <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2">
+            <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+              <BarChart2 size={15} /> Hasil Kegiatan {kategoriHasilAktif === "branding" ? "(Branding)" : "(Penjualan)"}
+            </span>
+            {kategoriHasilAktif === "branding" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Pasang poster (outlet)">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilPoster} onChange={(e) => setHasilPoster(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Pasang shopblind (outlet)">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilShopblind} onChange={(e) => setHasilShopblind(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Branding vinil (outlet)">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilVinil} onChange={(e) => setHasilVinil(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Pasang spanduk (titik)">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilSpanduk} onChange={(e) => setHasilSpanduk(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Pasang rontek (titik)">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilRontek} onChange={(e) => setHasilRontek(e.target.value)} placeholder="0" />
+                </Field>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="Jualan SP IM3">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilSpIM3} onChange={(e) => setHasilSpIM3(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Jualan SP 3ID">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilSp3ID} onChange={(e) => setHasilSp3ID(e.target.value)} placeholder="0" />
+                </Field>
+                <Field label="Jualan Hifi">
+                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilHifi} onChange={(e) => setHasilHifi(e.target.value)} placeholder="0" />
+                </Field>
+              </div>
+            )}
+            <div className="flex justify-end">
+              <PrimaryBtn onClick={saveHasil} disabled={savingHasil}>{savingHasil ? "Menyimpan…" : "Simpan Hasil"}</PrimaryBtn>
+            </div>
+          </div>
+        )}
 
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -1153,7 +1251,7 @@ function GaleriFoto({ activities, members, cursor, onOpen }) {
   activities.forEach((a) => {
     if (!a.date || !a.date.startsWith(monthPrefix)) return;
     (a.photos || []).forEach((ph) => {
-      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId });
+      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId, hasil: a.hasil });
     });
   });
   photos.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
@@ -1189,6 +1287,20 @@ function GaleriFoto({ activities, members, cursor, onOpen }) {
                 <div className="mt-2 text-center px-0.5">
                   <div className="text-[11px] font-semibold text-slate-800 truncate">{ph.activityTitle}</div>
                   <div className="text-[10px] text-slate-400 truncate">{mem ? `${mem.posisi} ${mem.name}` : ph.uploadedBy}</div>
+                  {(ph.hasil?.spIM3 > 0 || ph.hasil?.sp3ID > 0 || ph.hasil?.hifi > 0 ||
+                    ph.hasil?.poster > 0 || ph.hasil?.shopblind > 0 || ph.hasil?.vinil > 0 ||
+                    ph.hasil?.spanduk > 0 || ph.hasil?.rontek > 0) && (
+                    <div className="text-[9.5px] text-emerald-700 font-semibold mt-1 flex flex-wrap justify-center gap-x-1.5 gap-y-0.5">
+                      {ph.hasil.spIM3 > 0 && <span>SP IM3 {ph.hasil.spIM3}</span>}
+                      {ph.hasil.sp3ID > 0 && <span>SP 3ID {ph.hasil.sp3ID}</span>}
+                      {ph.hasil.hifi > 0 && <span>Hifi {ph.hasil.hifi}</span>}
+                      {ph.hasil.poster > 0 && <span>Poster {ph.hasil.poster}</span>}
+                      {ph.hasil.shopblind > 0 && <span>Shopblind {ph.hasil.shopblind}</span>}
+                      {ph.hasil.vinil > 0 && <span>Vinil {ph.hasil.vinil}</span>}
+                      {ph.hasil.spanduk > 0 && <span>Spanduk {ph.hasil.spanduk}</span>}
+                      {ph.hasil.rontek > 0 && <span>Rontek {ph.hasil.rontek}</span>}
+                    </div>
+                  )}
                 </div>
               </div>
             );
