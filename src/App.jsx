@@ -439,7 +439,7 @@ export default function PapanKegiatan() {
 
         {/* Full width summary charts */}
         <div className="mt-6 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-          <SummaryCharts activities={activities} members={members} cursor={cursor} />
+          <SummaryCharts activities={activities} members={members} cursor={cursor} onOpenActivity={(id) => setDetailId(id)} />
         </div>
 
         {/* Photo wall */}
@@ -1157,7 +1157,9 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
 }
 
 // ---------- Summary charts: by activity type & by member/posisi ----------
-function SummaryCharts({ activities, members, cursor }) {
+function SummaryCharts({ activities, members, cursor, onOpenActivity }) {
+  const [selectedJenis, setSelectedJenis] = useState(null);
+  useEffect(() => { setSelectedJenis(null); }, [cursor.y, cursor.m]);
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
   const monthActs = activities.filter((a) => a.date && a.date.startsWith(monthPrefix));
 
@@ -1198,6 +1200,7 @@ function SummaryCharts({ activities, members, cursor }) {
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
           <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
             <div className="font-semibold text-sm text-slate-800 mb-2">Berdasarkan Jenis Kegiatan</div>
+            <p className="text-[11px] text-slate-400 -mt-1 mb-2">Klik salah satu batang untuk lihat daftar kegiatannya — berguna kalau ada angka yang kelihatan janggal (mis. mungkin ada yang salah pilih jenis kegiatan saat input).</p>
             {/* Tinggi area dibatasi (maxHeight + overflow) supaya kartu tidak memanjang ke bawah
                 walau jenis kegiatannya banyak — kalau melebihi, tinggal scroll di dalam kotak ini. */}
             <div style={{ maxHeight: 320, overflowY: typeData.length > 7 ? "auto" : "visible" }}>
@@ -1208,11 +1211,44 @@ function SummaryCharts({ activities, members, cursor }) {
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: COLORS.ink }} width={110} />
                   <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.border}` }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[0, 4, 4, 0]} barSize={16} />
-                  <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} />
+                  <Bar dataKey="Rencana" fill={STATUS_COLORS.rencana} radius={[0, 4, 4, 0]} barSize={16} cursor="pointer" onClick={(d) => setSelectedJenis(d.name)} />
+                  <Bar dataKey="Selesai" fill={STATUS_COLORS.selesai} radius={[0, 4, 4, 0]} barSize={16} cursor="pointer" onClick={(d) => setSelectedJenis(d.name)} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
+
+            {selectedJenis && (
+              <div className="mt-3 border-t border-slate-200 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-700">Daftar kegiatan "{selectedJenis}" — {BULAN[cursor.m]} {cursor.y}</span>
+                  <button onClick={() => setSelectedJenis(null)} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>
+                </div>
+                <div className="flex flex-col gap-1.5 overflow-y-auto" style={{ maxHeight: 260 }}>
+                  {monthActs
+                    .filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === selectedJenis)
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map((a) => {
+                      const mem = members.find((m) => m.id === a.assignedMemberId);
+                      return (
+                        <button
+                          key={a.id}
+                          onClick={() => onOpenActivity?.(a.id)}
+                          className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-left hover:border-indigo-300 hover:bg-indigo-50 transition"
+                        >
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <StatusMarker status={a.status} />
+                            <span className="text-xs text-slate-800 truncate">{a.title}</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono flex-shrink-0">{a.date} · {mem?.name || a.memberName || "?"}</span>
+                        </button>
+                      );
+                    })}
+                  {monthActs.filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === selectedJenis).length === 0 && (
+                    <p className="text-xs text-slate-400 italic">Tidak ada kegiatan.</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
