@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Camera, Check, Plus, X, Users,
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
-  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2
+  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2, Wand2
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -40,36 +40,32 @@ const CHIP_PALETTE = [
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
-const JENIS_KEGIATAN_OPSI = ["Attack Desa", "Attack Sekolah", "DTU", "Branding", "Rapat", "Kunjungan Lapangan", "Pelatihan", "Distribusi Logistik", "Dokumentasi", "Briefing", "Lainnya"];
+const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding"];
 
 // Mengelompokkan variasi penulisan jenis kegiatan yang bebas/tidak konsisten (mis. "Attack Desa Seraya",
-// "attack desa marannu", "pasang matpro toko Sinar Jaya") ke dalam kategori baku berdasarkan kata kunci,
-// supaya nama lokasi yang berbeda-beda di judul tidak membuat grafik pecah jadi banyak baris sendiri-sendiri.
-// Dipakai baik saat kegiatan disimpan (addActivity/updateActivity, biar rapi ke depannya) maupun saat
-// grafik dihitung (SummaryCharts, biar data lama yang sudah berantakan di Firestore ikut terkelompok
-// tanpa perlu diedit manual satu-satu).
+// "attack desa marannu", "pasang matpro toko Sinar Jaya", "Reskin toko ABC") ke dalam 4 kategori BAKU
+// di atas, berdasarkan kata kunci, supaya data lama (termasuk yang salah pilih kategori atau ditulis
+// bebas lewat WhatsApp sebelum kategori ini dikunci) tetap ikut terkelompok dengan benar.
 //
 // PENTING: urutan array ini disengaja — kategori yang lebih spesifik diletakkan lebih dulu. Contoh:
-// "Attack Sekolah" harus dicek sebelum "Attack Desa", supaya judul seperti "Attack Sekolah Marannu"
+// "Attack School" harus dicek sebelum "Attack Desa", supaya judul seperti "Attack Sekolah Marannu"
 // tidak keburu ketangkap kata kunci umum "attack" dan salah masuk ke kategori Attack Desa.
 const JENIS_KEYWORDS = [
-  { match: ["attack sekolah", "attack school", "sekolah", "school"], label: "Attack Sekolah" },
+  { match: ["attack sekolah", "attack school", "sekolah", "school"], label: "Attack School" },
   { match: ["attack"], label: "Attack Desa" },
   {
     match: [
       "branding", "brending", "brandi", "matpro", "poster", "shopsign", "shop sign",
-      "pengukuran shopsign", "pengukuran shop sign", "spanduk", "rontek", "pemasangan",
+      "pengukuran shopsign", "pengukuran shop sign", "spanduk", "rontek", "pemasangan", "reskin",
     ],
     label: "Branding",
   },
   { match: ["dtu", "direct to user", "direct selling"], label: "DTU" },
-  { match: ["rapat", "meeting"], label: "Rapat" },
-  { match: ["kunjungan"], label: "Kunjungan Lapangan" },
-  { match: ["pelatihan", "training"], label: "Pelatihan" },
-  { match: ["distribusi", "logistik"], label: "Distribusi Logistik" },
-  { match: ["briefing"], label: "Briefing" },
-  { match: ["dokumentasi"], label: "Dokumentasi" },
 ];
+// Dipakai untuk data LAMA yang jenis kegiatannya sudah tidak lagi sesuai 4 kategori baku (mis. "Rapat",
+// "Kunjungan Lapangan", dll — lihat MigrasiKategoriModal). Untuk kegiatan BARU, jenisKegiatan wajib
+// dipilih langsung dari salah satu dari 4 opsi di JENIS_KEGIATAN_OPSI lewat dropdown (tidak ada lagi
+// input bebas), jadi normalizeJenisKegiatan di bawah ini terutama berguna untuk merapikan data lama.
 function normalizeJenisKegiatan(raw) {
   const t = (raw || "").toLowerCase();
   for (const { match, label } of JENIS_KEYWORDS) {
@@ -87,7 +83,7 @@ function normalizeJenisKegiatan(raw) {
 function kategoriHasil(jenisKegiatanRaw) {
   const label = normalizeJenisKegiatan(jenisKegiatanRaw);
   if (label === "Branding") return "branding";
-  if (label === "Attack Desa" || label === "Attack Sekolah" || label === "DTU") return "jualan";
+  if (label === "Attack Desa" || label === "Attack School" || label === "DTU") return "jualan";
   return null;
 }
 
@@ -238,6 +234,7 @@ export default function PapanKegiatan() {
   const [showMembers, setShowMembers] = useState(false);
   const [showSim, setShowSim] = useState(false);
   const [showAddActivity, setShowAddActivity] = useState(false);
+  const [showMigrasi, setShowMigrasi] = useState(false);
   const [toast, setToast] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -363,6 +360,14 @@ export default function PapanKegiatan() {
             <div className="flex items-center gap-2">
               <IconBtn onClick={() => setShowMembers(true)} title="Sheet Anggota"><Users size={19} /></IconBtn>
               <IconBtn onClick={() => setShowSim(true)} title="Simulasi WhatsApp"><Smartphone size={19} /></IconBtn>
+              <div className="relative">
+                <IconBtn onClick={() => setShowMigrasi(true)} title="Rapikan kategori kegiatan lama">
+                  <Wand2 size={19} />
+                </IconBtn>
+                {activities.some((a) => !JENIS_KEGIATAN_OPSI.includes(a.jenisKegiatan)) && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 border-2 border-white" />
+                )}
+              </div>
               <IconBtn onClick={() => setInfoOpen(true)} title="Cara kerja"><Info size={19} /></IconBtn>
               <PrimaryBtn onClick={() => setShowAddActivity(todayKey())} className="ml-1">
                 <Plus size={16} /> <span className="hidden sm:inline">Tambah Kegiatan</span>
@@ -523,6 +528,10 @@ export default function PapanKegiatan() {
         />
       )}
 
+      {showMigrasi && (
+        <MigrasiKategoriModal activities={activities} onClose={() => setShowMigrasi(false)} onApply={updateActivity} />
+      )}
+
       {infoOpen && (
         <Modal onClose={() => setInfoOpen(false)} width={480}>
           <ModalHeader title="Cara kerja sistem" onClose={() => setInfoOpen(false)} icon={<Info size={18} />} />
@@ -633,22 +642,24 @@ function AddActivityModal({ initialDate, members, onClose, onSave }) {
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
   const [description, setDescription] = useState("");
-  const [jenisKegiatan, setJenisKegiatan] = useState(JENIS_KEGIATAN_OPSI[0]);
+  const [jenisKegiatan, setJenisKegiatan] = useState("");
   const [assignedMemberId, setAssignedMemberId] = useState(members[0]?.id || "");
   return (
     <Modal onClose={onClose} width={420}>
       <ModalHeader title="Tambah Kegiatan" onClose={onClose} icon={<Plus size={18} />} />
       <div className="p-5 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Tanggal"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Jam (opsional)"><input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+          <Field label="Tanggal *"><input type="date" required style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Jam *"><input type="time" required style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
         </div>
         <Field label="Judul kegiatan">
-          <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Rapat evaluasi mingguan" />
+          <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Attack Desa Wolomeze" />
         </Field>
-        <Field label="Jenis kegiatan">
-          <input style={inputStyle} list="jenis-list" value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)} />
-          <datalist id="jenis-list">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
+        <Field label="Jenis kegiatan *">
+          <select required style={inputStyle} value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)}>
+            <option value="" disabled>Pilih jenis kegiatan…</option>
+            {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
+          </select>
         </Field>
         <Field label="Deskripsi (opsional)">
           <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -658,7 +669,7 @@ function AddActivityModal({ initialDate, members, onClose, onSave }) {
             {members.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
           </select>
         </Field>
-        <PrimaryBtn disabled={!title.trim() || !date} onClick={() => onSave({ title: title.trim(), date, time, description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
+        <PrimaryBtn disabled={!title.trim() || !date || !time || !jenisKegiatan} onClick={() => onSave({ title: title.trim(), date, time, description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
       </div>
     </Modal>
   );
@@ -790,9 +801,14 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
             <Field label="Judul kegiatan">
               <input style={inputStyle} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             </Field>
-            <Field label="Jenis kegiatan">
-              <input style={inputStyle} list="jenis-list-edit" value={editJenis} onChange={(e) => setEditJenis(e.target.value)} />
-              <datalist id="jenis-list-edit">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
+            <Field label="Jenis kegiatan *">
+              <select required style={inputStyle} value={JENIS_KEGIATAN_OPSI.includes(editJenis) ? editJenis : ""} onChange={(e) => setEditJenis(e.target.value)}>
+                <option value="" disabled>Pilih jenis kegiatan…</option>
+                {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
+              </select>
+              {editJenis && !JENIS_KEGIATAN_OPSI.includes(editJenis) && (
+                <p className="text-[11px] text-amber-600 mt-1">Kategori lama: "{editJenis}" — pilih salah satu kategori baku di atas untuk memperbaikinya.</p>
+              )}
             </Field>
             <Field label="Deskripsi">
               <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
@@ -805,7 +821,7 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
               </Field>
             )}
             <PrimaryBtn
-              disabled={!editTitle.trim()}
+              disabled={!editTitle.trim() || !JENIS_KEGIATAN_OPSI.includes(editJenis)}
               onClick={() => { onEdit(activity.id, { title: editTitle.trim(), jenisKegiatan: editJenis, description: editDescription, assignedMemberId: editMemberId }); setShowEdit(false); }}
             >
               Simpan Perubahan
@@ -1062,7 +1078,7 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
   const [time, setTime] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [jenisKegiatan, setJenisKegiatan] = useState(JENIS_KEGIATAN_OPSI[0]);
+  const [jenisKegiatan, setJenisKegiatan] = useState("");
   const [activityId, setActivityId] = useState("");
   const [caption, setCaption] = useState("");
   const [file, setFile] = useState(null);
@@ -1120,18 +1136,20 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
           <>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Tanggal kegiatan"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-              <Field label="Jam (opsional)"><input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+              <Field label="Jam"><input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
             </div>
-            <Field label="Judul kegiatan"><input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Kunjungan lapangan" /></Field>
+            <Field label="Judul kegiatan"><input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Attack Desa Wolomeze" /></Field>
             <Field label="Jenis kegiatan">
-              <input style={inputStyle} list="jenis-list-sim" value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)} />
-              <datalist id="jenis-list-sim">{JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j} />)}</datalist>
+              <select style={inputStyle} value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)}>
+                <option value="" disabled>Pilih jenis kegiatan…</option>
+                {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
+              </select>
             </Field>
             <Field label="Catatan (opsional)"><textarea style={{ ...inputStyle, minHeight: 60 }} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
             <div className="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700 font-mono">
               Pesan terbaca: "JADWAL {date}{time ? ` ${time}` : ""} — {title || "…"}" dari {sender?.name}
             </div>
-            <PrimaryBtn disabled={!title.trim() || sending} onClick={sendSchedule}><Send size={15} />{sending ? "Mengirim…" : "Kirim ke Papan"}</PrimaryBtn>
+            <PrimaryBtn disabled={!title.trim() || !time || !jenisKegiatan || sending} onClick={sendSchedule}><Send size={15} />{sending ? "Mengirim…" : "Kirim ke Papan"}</PrimaryBtn>
           </>
         ) : (
           <>
@@ -1149,6 +1167,87 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
             </Field>
             <Field label="Keterangan foto"><input style={inputStyle} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Contoh: Kegiatan berjalan lancar" /></Field>
             <PrimaryBtn disabled={!activityId || !preview || sending} onClick={sendUpload}><Send size={15} />{sending ? "Mengirim…" : "Kirim ke Papan"}</PrimaryBtn>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- Migrasi Kategori Lama ----------
+// Alat bantu untuk merapikan kegiatan lama yang jenisKegiatan-nya belum sesuai 4 kategori baku
+// (DTU / Attack Desa / Attack School / Branding) — misalnya kegiatan yang dulu diinput bebas lewat
+// WhatsApp/web sebelum kategori ini dikunci, atau salah pilih kategori (mis. "Rapat", "Reskin",
+// "Kunjungan Lapangan"). Kegiatan yang kata kuncinya cukup jelas (mis. "Reskin" -> Branding) otomatis
+// ditebak lewat normalizeJenisKegiatan; sisanya wajib dipilih manual satu-satu supaya tidak ada data
+// yang salah ditebak asal-asalan.
+function MigrasiKategoriModal({ activities, onClose, onApply }) {
+  const bermasalah = activities.filter((a) => !JENIS_KEGIATAN_OPSI.includes(a.jenisKegiatan));
+
+  const [pilihan, setPilihan] = useState(() => {
+    const awal = {};
+    bermasalah.forEach((a) => {
+      const tebakan = normalizeJenisKegiatan(a.jenisKegiatan);
+      awal[a.id] = JENIS_KEGIATAN_OPSI.includes(tebakan) ? tebakan : "";
+    });
+    return awal;
+  });
+  const [applying, setApplying] = useState(false);
+  const [done, setDone] = useState(0);
+
+  const sudahDiisi = bermasalah.filter((a) => pilihan[a.id]);
+  const belumDiisi = bermasalah.filter((a) => !pilihan[a.id]);
+
+  async function terapkanSemua() {
+    setApplying(true);
+    let count = 0;
+    for (const a of sudahDiisi) {
+      await onApply(a.id, { jenisKegiatan: pilihan[a.id] });
+      count++;
+      setDone(count);
+    }
+    setApplying(false);
+  }
+
+  return (
+    <Modal onClose={onClose} width={560}>
+      <ModalHeader title="Rapikan Kategori Kegiatan Lama" onClose={onClose} icon={<Wand2 size={18} />} />
+      <div className="p-5 flex flex-col gap-3">
+        {bermasalah.length === 0 ? (
+          <p className="text-sm text-emerald-600 font-medium">✅ Semua kegiatan sudah pakai salah satu dari 4 kategori baku (DTU, Attack Desa, Attack School, Branding). Tidak ada yang perlu dirapikan.</p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-600">
+              Ditemukan <b>{bermasalah.length}</b> kegiatan dengan kategori di luar 4 kategori baku. Yang kata kuncinya cukup jelas (mis. "Reskin" → Branding) sudah ditebak otomatis di bawah — periksa dulu, ubah kalau kurang tepat, lalu klik "Terapkan". Yang belum ada tebakan wajib dipilih manual dulu sebelum bisa diterapkan.
+            </p>
+            <div className="flex flex-col gap-1.5 overflow-y-auto" style={{ maxHeight: 380 }}>
+              {bermasalah
+                .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+                .map((a) => (
+                  <div key={a.id} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-800 truncate">{a.title}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{a.date || "(tanpa tanggal)"} · kategori lama: "{a.jenisKegiatan || "(kosong)"}"</div>
+                    </div>
+                    <select
+                      style={{ ...inputStyle, width: 160, flexShrink: 0 }}
+                      value={pilihan[a.id] || ""}
+                      onChange={(e) => setPilihan((p) => ({ ...p, [a.id]: e.target.value }))}
+                    >
+                      <option value="">— pilih —</option>
+                      {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
+                    </select>
+                  </div>
+                ))}
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+              <span className="text-xs text-slate-500">
+                {sudahDiisi.length} siap diterapkan{belumDiisi.length > 0 ? `, ${belumDiisi.length} belum dipilih` : ""}.
+              </span>
+              <PrimaryBtn disabled={sudahDiisi.length === 0 || applying} onClick={terapkanSemua}>
+                {applying ? `Menerapkan… (${done}/${sudahDiisi.length})` : `Terapkan (${sudahDiisi.length})`}
+              </PrimaryBtn>
+            </div>
           </>
         )}
       </div>
