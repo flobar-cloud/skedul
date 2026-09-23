@@ -2,14 +2,16 @@ import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Camera, Check, Plus, X, Users,
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
-  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2, Wand2
+  Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2, Wand2,
+  Download, LayoutGrid, ClipboardList
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
 } from "recharts";
+import * as XLSX from "xlsx"; // npm install xlsx -- dipakai untuk export Rekap KPI ke Excel
 import { db } from "./firebase.js";
 import {
-  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, arrayUnion
+  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, arrayUnion, setDoc
 } from "firebase/firestore";
 
 // ---------- Design tokens ----------
@@ -237,6 +239,14 @@ export default function PapanKegiatan() {
   const [showMigrasi, setShowMigrasi] = useState(false);
   const [toast, setToast] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  // Tab utama halaman: "kalender" (tampilan lama, default), "galeriBranch" (galeri foto laporan
+  // RGE per branch dari grup WA), "rekapKPI" (rekap target vs pencapaian KPI per RGE per bulan).
+  const [mainTab, setMainTab] = useState("kalender");
+  // rgeReports: ditulis oleh n8n (node "Simpan ke Firestore - rgeReports") tiap kali ada laporan
+  // posm/event/dtu/desa/school/fwa/nota dari grup RGE WhatsApp. kpiTargets: target bulanan per RGE,
+  // diisi manual lewat form di tab "Rekap KPI".
+  const [rgeReports, setRgeReports] = useState([]);
+  const [kpiTargets, setKpiTargets] = useState([]);
 
   function notify(msg) { setToast(msg); setTimeout(() => setToast(null), 2600); }
 
@@ -251,8 +261,31 @@ export default function PapanKegiatan() {
       (snap) => { setActivities(snap.docs.map((d) => ({ ...d.data(), id: d.id }))); setReady(true); },
       (err) => { console.error(err); notify("Gagal memuat data kegiatan dari Firestore."); setReady(true); }
     );
-    return () => { unsubMembers(); unsubActivities(); };
+    const unsubReports = onSnapshot(
+      collection(db, "rgeReports"),
+      (snap) => setRgeReports(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
+      (err) => console.error("Gagal memuat rgeReports:", err)
+    );
+    const unsubTargets = onSnapshot(
+      collection(db, "kpiTargets"),
+      (snap) => setKpiTargets(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
+      (err) => console.error("Gagal memuat kpiTargets:", err)
+    );
+    return () => { unsubMembers(); unsubActivities(); unsubReports(); unsubTargets(); };
   }, []);
+
+  // Simpan/update target KPI bulanan 1 RGE. Doc id dibuat deterministik (memberId_bulan) supaya
+  // simpan ulang di bulan yang sama otomatis nge-update, bukan bikin dokumen baru.
+  async function saveKpiTarget(memberId, monthKey, patch) {
+    const id = `${memberId}_${monthKey}`;
+    try {
+      await setDoc(doc(db, "kpiTargets", id), { memberId, monthKey, ...patch }, { merge: true });
+      notify("Target KPI tersimpan.");
+    } catch (e) {
+      console.error(e);
+      notify("Gagal menyimpan target KPI.");
+    }
+  }
 
   async function addMember(member) {
     try { await addDoc(collection(db, "members"), member); }
@@ -377,6 +410,38 @@ export default function PapanKegiatan() {
         </div>
       </nav>
 
+      {/* Tab utama: Kalender (lama) | Galeri per Branch | Rekap KPI RGE */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1.5 w-fit">
+          {[
+            { k: "kalender", label: "Kalender", icon: CalendarIcon },
+            { k: "galeriBranch", label: "Galeri per Branch", icon: LayoutGrid },
+            { k: "rekapKPI", label: "Rekap KPI RGE", icon: ClipboardList },
+          ].map(({ k, label, icon: Icon }) => (
+            <button
+              key={k}
+              onClick={() => setMainTab(k)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition ${mainTab === k ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+            >
+              <Icon size={15} /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {mainTab === "galeriBranch" && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <GaleriPerBranch members={members} rgeReports={rgeReports} />
+        </div>
+      )}
+
+      {mainTab === "rekapKPI" && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} />
+        </div>
+      )}
+
+      {mainTab === "kalender" && (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -452,6 +517,7 @@ export default function PapanKegiatan() {
           <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={(id) => setDetailId(id)} />
         </div>
       </div>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -1441,6 +1507,346 @@ function GaleriFoto({ activities, members, cursor, onOpen }) {
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+// ---------- Galeri per Branch: foto laporan RGE (posm/event/dtu/desa/school/fwa/nota) dari WA,
+// dikelompokkan per branch (tab), sumber datanya koleksi Firestore "rgeReports" yang ditulis n8n. ----------
+const KATEGORI_LABEL = {
+  posm: "POSM", event: "Event", dtu: "DTU", desa: "Desa",
+  school: "School", fwa: "FWA", nota: "Nota",
+};
+function ringkasanLaporan(r) {
+  if (r.category === "posm" && r.posmItems) {
+    return Object.entries(r.posmItems).map(([k, v]) => `${k} ${v}pcs`).join(", ");
+  }
+  if (r.category === "event") return [r.namaEvent, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
+  if (r.category === "dtu") return [r.namaLokasi, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
+  if (r.category === "desa") return [r.namaDesa, r.siteId ? `Site ${r.siteId}` : null, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
+  if (r.category === "school") return [r.namaSekolah, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
+  if (r.category === "fwa") return [r.msisdn, r.imei].filter(Boolean).join(" · ");
+  if (r.category === "nota") return [r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.nominal ? `Rp${Number(r.nominal).toLocaleString("id-ID")}` : null].filter(Boolean).join(" · ");
+  return r.rawCaption || "";
+}
+function GaleriPerBranch({ members, rgeReports }) {
+  // Branch diambil dinamis dari data anggota RGE yang ada, bukan di-hardcode -- otomatis
+  // menyesuaikan berapa pun jumlah branch yang sebenarnya ada di sheet Member.
+  const branches = Array.from(
+    new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))
+  ).sort();
+  const [activeBranch, setActiveBranch] = useState(null);
+  const effectiveBranch = activeBranch && branches.includes(activeBranch) ? activeBranch : branches[0];
+
+  const photos = rgeReports
+    .filter((r) => r.Branch === effectiveBranch || r.branch === effectiveBranch)
+    .filter((r) => r.FotoURL || r.fotoUrl)
+    .sort((a, b) => String(b.Timestamp || b.receivedAt || "").localeCompare(String(a.Timestamp || a.receivedAt || "")));
+
+  if (branches.length === 0) {
+    return <p className="text-sm text-slate-400 italic">Belum ada data branch. Isi field "Branch" di Sheet Anggota terlebih dulu.</p>;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <LayoutGrid size={17} className="text-indigo-600" />
+        <h3 className="font-bold text-base text-slate-900">Galeri Laporan per Branch</h3>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {branches.map((b) => (
+          <button
+            key={b}
+            onClick={() => setActiveBranch(b)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${b === effectiveBranch ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+          >
+            {b}
+          </button>
+        ))}
+      </div>
+
+      {photos.length === 0 ? (
+        <p className="text-sm text-slate-400 italic">Belum ada laporan foto dari branch ini.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {photos.map((r) => {
+            const isLunas = r.StatusLunas === true || r.statusLunas === true;
+            async function toggleLunas(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              try { await updateDoc(doc(db, "rgeReports", r.id), { StatusLunas: !isLunas }); }
+              catch (err) { console.error("Gagal update status lunas", err); }
+            }
+            return (
+              <div
+                key={r.id}
+                onClick={() => window.open(r.FotoURL || r.fotoUrl, "_blank")}
+                className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-300 hover:shadow-sm transition block cursor-pointer"
+              >
+                <div className="aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
+                  <img src={r.FotoURL || r.fotoUrl} alt={r.category} className="w-full h-full object-cover" />
+                </div>
+                <div className="p-2.5">
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="text-[10px] font-bold uppercase text-indigo-600">{KATEGORI_LABEL[r.category] || r.category}</span>
+                    <span className="text-[10px] text-slate-400">{String(r.Timestamp || r.receivedAt || "").slice(0, 10)}</span>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-800 truncate">{r.NamaRGE || r.namaRGE || r.sender}</div>
+                  <div className="text-[11px] text-slate-500 truncate">{ringkasanLaporan(r)}</div>
+                  {r.category === "nota" && (
+                    <button
+                      onClick={toggleLunas}
+                      className={`mt-1.5 w-full text-[10px] font-semibold py-1 rounded-md border transition ${isLunas ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-amber-50 border-amber-300 text-amber-700"}`}
+                    >
+                      {isLunas ? "✓ Lunas" : "Tandai Lunas"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Rekap KPI RGE: target vs pencapaian bulanan per RGE, mirip format Excel yang dipakai
+// tim (kolom Target SP/FWA/Desa/School + % Achv), bisa diatur targetnya & diexport ke Excel. ----------
+function monthKeyOf(cursor) { return `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`; }
+function pct(achv, target) { return target > 0 ? Math.round((achv / target) * 100) : 0; }
+
+function hitungAchievement(memberId, monthKey, rgeReports) {
+  const rows = rgeReports.filter((r) => {
+    const mid = r.memberId || r.MemberId;
+    const ts = String(r.Timestamp || r.receivedAt || "");
+    return mid === memberId && ts.slice(0, 7) === monthKey;
+  });
+  let achvSP = 0, achvFWA = 0, achvDesa = 0, achvSchool = 0, achvNotaLunas = 0, achvNotaTotal = 0;
+  rows.forEach((r) => {
+    const cat = r.Kategori || r.category;
+    const spIM3 = Number(r.SP_IM3 ?? r.spIM3 ?? 0);
+    const sp3ID = Number(r.SP_3ID ?? r.sp3ID ?? 0);
+    // SP (im3+3id) tetap ditotal dari SEMUA jenis kegiatan yang ada penjualannya.
+    if (["event", "dtu", "desa", "school", "nota"].includes(cat)) achvSP += spIM3 + sp3ID;
+    if (["event", "dtu", "desa", "school"].includes(cat)) {
+      if (cat === "desa") achvDesa += 1;
+      if (cat === "school") achvSchool += 1;
+    }
+    // FWA pencapaian HANYA dihitung dari laporan keyword "fwa" yang msisdn & imei-nya terisi
+    // (bukan dijumlah dari field fwa di event/dtu/desa/school lagi).
+    const msisdn = r.Msisdn ?? r.msisdn ?? "";
+    const imei = r.Imei ?? r.imei ?? "";
+    if (cat === "fwa" && String(msisdn).trim() && String(imei).trim()) achvFWA += 1;
+    // Nota: dipakai untuk VERIFIKASI manual (bukan pengurang Achv SP) -- bandingkan jumlah nota
+    // yang sudah ditandai Lunas dengan Achv SP di atas.
+    if (cat === "nota") {
+      achvNotaTotal += 1;
+      if (r.StatusLunas === true || r.statusLunas === true) achvNotaLunas += 1;
+    }
+  });
+  return { achvSP, achvFWA, achvDesa, achvSchool, achvNotaLunas, achvNotaTotal };
+}
+
+function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
+  const [form, setForm] = useState({
+    posmAchievementPercent: target?.posmAchievementPercent ?? "",
+    targetSP: target?.targetSP ?? "",
+    targetFWA: target?.targetFWA ?? "",
+    targetDesa: target?.targetDesa ?? "",
+    targetSchool: target?.targetSchool ?? "",
+  });
+  return (
+    <Modal onClose={onClose} width={380}>
+      <ModalHeader title={`Target KPI — ${member.name || member.fullName}`} onClose={onClose} />
+      <div className="p-5 flex flex-col gap-3">
+        <p className="text-xs text-slate-500 -mt-1">Bulan {monthKey}</p>
+        <Field label="POSM End-to-End Process Control — Achievement (%)">
+          <input type="number" style={inputStyle} value={form.posmAchievementPercent}
+            onChange={(e) => setForm((f) => ({ ...f, posmAchievementPercent: e.target.value }))} placeholder="Cth: 80" />
+        </Field>
+        <Field label="Target SP (im3 + 3id)">
+          <input type="number" style={inputStyle} value={form.targetSP}
+            onChange={(e) => setForm((f) => ({ ...f, targetSP: e.target.value }))} />
+        </Field>
+        <Field label="Target FWA">
+          <input type="number" style={inputStyle} value={form.targetFWA}
+            onChange={(e) => setForm((f) => ({ ...f, targetFWA: e.target.value }))} />
+        </Field>
+        <Field label="Target Desa">
+          <input type="number" style={inputStyle} value={form.targetDesa}
+            onChange={(e) => setForm((f) => ({ ...f, targetDesa: e.target.value }))} />
+        </Field>
+        <Field label="Target School/Bimbel/University">
+          <input type="number" style={inputStyle} value={form.targetSchool}
+            onChange={(e) => setForm((f) => ({ ...f, targetSchool: e.target.value }))} />
+        </Field>
+        <PrimaryBtn onClick={() => { onSave({
+          posmAchievementPercent: Number(form.posmAchievementPercent) || 0,
+          targetSP: Number(form.targetSP) || 0,
+          targetFWA: Number(form.targetFWA) || 0,
+          targetDesa: Number(form.targetDesa) || 0,
+          targetSchool: Number(form.targetSchool) || 0,
+        }); onClose(); }}>
+          Simpan Target
+        </PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget }) {
+  const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
+  const [editMember, setEditMember] = useState(null);
+  const monthKey = monthKeyOf(cursor);
+
+  const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+
+  const rows = rgeMembers.map((m) => {
+    const target = kpiTargets.find((t) => t.memberId === m.id && t.monthKey === monthKey) || {};
+    const achv = hitungAchievement(m.id, monthKey, rgeReports);
+    return {
+      member: m,
+      target,
+      ...achv,
+      pctSP: pct(achv.achvSP, Number(target.targetSP) || 0),
+      pctFWA: pct(achv.achvFWA, Number(target.targetFWA) || 0),
+      pctDesa: pct(achv.achvDesa, Number(target.targetDesa) || 0),
+      pctSchool: pct(achv.achvSchool, Number(target.targetSchool) || 0),
+    };
+  });
+
+  const totals = rows.reduce((acc, r) => ({
+    targetSP: acc.targetSP + (Number(r.target.targetSP) || 0), achvSP: acc.achvSP + r.achvSP,
+    targetFWA: acc.targetFWA + (Number(r.target.targetFWA) || 0), achvFWA: acc.achvFWA + r.achvFWA,
+    targetDesa: acc.targetDesa + (Number(r.target.targetDesa) || 0), achvDesa: acc.achvDesa + r.achvDesa,
+    targetSchool: acc.targetSchool + (Number(r.target.targetSchool) || 0), achvSchool: acc.achvSchool + r.achvSchool,
+    achvNotaLunas: acc.achvNotaLunas + r.achvNotaLunas, achvNotaTotal: acc.achvNotaTotal + r.achvNotaTotal,
+  }), { targetSP: 0, achvSP: 0, targetFWA: 0, achvFWA: 0, targetDesa: 0, achvDesa: 0, targetSchool: 0, achvSchool: 0, achvNotaLunas: 0, achvNotaTotal: 0 });
+
+  function exportExcel() {
+    const header = ["NO", "Nama RGE", "Branch", "POSM Achv (%)", "Target SP", "Achv SP", "%Achv SP", "Nota Lunas/Total", "Target FWA", "Achv FWA", "%Achv FWA", "Target Desa", "Achv Desa", "%Achv Desa", "Target School", "Achv School", "%Achv School"];
+    const body = rows.map((r, i) => [
+      i + 1, r.member.name || r.member.fullName, r.member.branch,
+      r.target.posmAchievementPercent || 0,
+      r.target.targetSP || 0, r.achvSP, `${r.pctSP}%`,
+      `${r.achvNotaLunas}/${r.achvNotaTotal}`,
+      r.target.targetFWA || 0, r.achvFWA, `${r.pctFWA}%`,
+      r.target.targetDesa || 0, r.achvDesa, `${r.pctDesa}%`,
+      r.target.targetSchool || 0, r.achvSchool, `${r.pctSchool}%`,
+    ]);
+    const totalRow = ["", "Total", "", "",
+      totals.targetSP, totals.achvSP, `${pct(totals.achvSP, totals.targetSP)}%`,
+      `${totals.achvNotaLunas}/${totals.achvNotaTotal}`,
+      totals.targetFWA, totals.achvFWA, `${pct(totals.achvFWA, totals.targetFWA)}%`,
+      totals.targetDesa, totals.achvDesa, `${pct(totals.achvDesa, totals.targetDesa)}%`,
+      totals.targetSchool, totals.achvSchool, `${pct(totals.achvSchool, totals.targetSchool)}%`,
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([header, ...body, totalRow]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Rekap KPI");
+    XLSX.writeFile(wb, `Rekap-KPI-RGE-${monthKey}.xlsx`);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={17} className="text-indigo-600" />
+          <h3 className="font-bold text-base text-slate-900">Rekap KPI RGE</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <IconBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><ChevronLeft size={16} /></IconBtn>
+          <span className="text-sm font-semibold text-slate-700 min-w-[120px] text-center">{BULAN[cursor.m]} {cursor.y}</span>
+          <IconBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><ChevronRight size={16} /></IconBtn>
+          <GhostBtn onClick={exportExcel}><Download size={14} /> Excel</GhostBtn>
+          <GhostBtn onClick={() => window.print()}><Download size={14} /> PDF (Print)</GhostBtn>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600">
+              <th className="border border-slate-200 px-2 py-1.5">NO</th>
+              <th className="border border-slate-200 px-2 py-1.5 text-left">Nama RGE</th>
+              <th className="border border-slate-200 px-2 py-1.5 text-left">Branch</th>
+              <th className="border border-slate-200 px-2 py-1.5">POSM Achv</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target SP (40%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" title="Cek manual: jumlah nota yang sudah ditandai Lunas vs total nota masuk bulan ini">Verifikasi Nota</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target FWA (25%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target Desa (10%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target School (10%)</th>
+              <th className="border border-slate-200 px-2 py-1.5"></th>
+            </tr>
+            <tr className="bg-slate-50 text-slate-500">
+              <th className="border border-slate-200" colSpan={4}></th>
+              {["Target", "Achv", "%"].map((h) => <th key={"sp" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              <th className="border border-slate-200 px-1.5 py-1">Lunas/Total</th>
+              {["Target", "Achv", "%"].map((h) => <th key={"fwa" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              {["Target", "Achv", "%"].map((h) => <th key={"desa" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              {["Target", "Achv", "%"].map((h) => <th key={"sch" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              <th className="border border-slate-200"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.member.id} className="hover:bg-slate-50">
+                <td className="border border-slate-200 text-center">{i + 1}</td>
+                <td className="border border-slate-200 px-2 py-1 font-medium text-slate-800">{r.member.name || r.member.fullName}</td>
+                <td className="border border-slate-200 px-2 py-1 text-slate-500">{r.member.branch}</td>
+                <td className="border border-slate-200 text-center">{r.target.posmAchievementPercent ? `${r.target.posmAchievementPercent}%` : "-"}</td>
+                <td className="border border-slate-200 text-center">{r.target.targetSP || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvSP}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctSP >= 100 ? "#059669" : "#0F172A" }}>{r.pctSP}%</td>
+                <td className="border border-slate-200 text-center text-slate-500" title="Jumlah nota Lunas / total nota masuk bulan ini">
+                  {r.achvNotaLunas}/{r.achvNotaTotal}
+                  {r.achvNotaTotal > 0 && r.achvNotaLunas < r.achvNotaTotal && <span className="text-amber-500 ml-0.5">⚠</span>}
+                </td>
+                <td className="border border-slate-200 text-center">{r.target.targetFWA || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvFWA}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctFWA >= 100 ? "#059669" : "#0F172A" }}>{r.pctFWA}%</td>
+                <td className="border border-slate-200 text-center">{r.target.targetDesa || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvDesa}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctDesa >= 100 ? "#059669" : "#0F172A" }}>{r.pctDesa}%</td>
+                <td className="border border-slate-200 text-center">{r.target.targetSchool || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvSchool}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctSchool >= 100 ? "#059669" : "#0F172A" }}>{r.pctSchool}%</td>
+                <td className="border border-slate-200 text-center">
+                  <button onClick={() => setEditMember(r.member)} className="text-indigo-500 hover:text-indigo-700"><Pencil size={13} /></button>
+                </td>
+              </tr>
+            ))}
+            <tr className="bg-slate-100 font-bold text-slate-800">
+              <td className="border border-slate-200 text-center" colSpan={4}>Total</td>
+              <td className="border border-slate-200 text-center">{totals.targetSP}</td>
+              <td className="border border-slate-200 text-center">{totals.achvSP}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvSP, totals.targetSP)}%</td>
+              <td className="border border-slate-200 text-center">{totals.achvNotaLunas}/{totals.achvNotaTotal}</td>
+              <td className="border border-slate-200 text-center">{totals.targetFWA}</td>
+              <td className="border border-slate-200 text-center">{totals.achvFWA}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvFWA, totals.targetFWA)}%</td>
+              <td className="border border-slate-200 text-center">{totals.targetDesa}</td>
+              <td className="border border-slate-200 text-center">{totals.achvDesa}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvDesa, totals.targetDesa)}%</td>
+              <td className="border border-slate-200 text-center">{totals.targetSchool}</td>
+              <td className="border border-slate-200 text-center">{totals.achvSchool}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvSchool, totals.targetSchool)}%</td>
+              <td className="border border-slate-200"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {rgeMembers.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada anggota dengan posisi RGE.</p>}
+
+      {editMember && (
+        <TargetKPIModal
+          member={editMember}
+          monthKey={monthKey}
+          target={kpiTargets.find((t) => t.memberId === editMember.id && t.monthKey === monthKey)}
+          onClose={() => setEditMember(null)}
+          onSave={(patch) => onSaveTarget(editMember.id, monthKey, patch)}
+        />
       )}
     </div>
   );
