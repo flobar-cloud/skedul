@@ -41,6 +41,14 @@ const CHIP_PALETTE = [
 ];
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+
+// Pemetaan region REGB (Regional Bali) / REGN (Regional Nusra) ke branch di bawahnya. Dipakai
+// sebagai acuan kalau nanti Rekap KPI / notifikasi WA butuh menampilkan gabungan beberapa branch
+// per regional head. Member dengan posisi REGB/REGN sebaiknya isi Branch = "BALI" atau "NUSRA".
+const REGION_BRANCHES = {
+  BALI: ["Bali Barat", "Bali Timur"],
+  NUSRA: ["Lombok Barat", "Lombok Timur", "Sumbawa", "Flores Barat", "Flores Timur", "Sumba", "Timor"],
+};
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
 const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding"];
 
@@ -1058,6 +1066,8 @@ function MemberRow({ member, onRemove, onEdit }) {
               <option value="CSE">CSE</option>
               <option value="RSE">RSE</option>
               <option value="BSM">BSM</option>
+              <option value="REGB">REGB</option>
+              <option value="REGN">REGN</option>
             </select>
           </Field>
         </div>
@@ -1118,11 +1128,13 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
                 <option value="CSE">CSE (eksekutor kegiatan di outlet/toko)</option>
                 <option value="RSE">RSE (eksekutor kegiatan di outlet/toko)</option>
                 <option value="BSM">BSM (Manager / pimpinan branch)</option>
+                <option value="REGB">REGB (Regional Head — wilayah Bali)</option>
+                <option value="REGN">REGN (Regional Head — wilayah Nusra)</option>
               </select>
             </Field>
           </div>
           <p className="text-xs text-slate-400 -mt-1">
-            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian. Untuk CSE/RSE/BSM, isi lengkap wilayah + brand (mis. "Flores Barat IM3") — cuma cocok ke BSM brand itu saja. Untuk RGE yang merangkap 2 brand, isi nama wilayah saja (mis. "Flores Barat" tanpa brand) — otomatis cocok ke SEMUA BSM di wilayah itu (mis. BSM Flores Barat IM3 dan BSM Flores Barat 3ID sekaligus).
+            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian. Untuk CSE/RSE/BSM, isi lengkap wilayah + brand (mis. "Flores Barat IM3") — cuma cocok ke BSM brand itu saja. Untuk RGE yang merangkap 2 brand, isi nama wilayah saja (mis. "Flores Barat" tanpa brand) — otomatis cocok ke SEMUA BSM di wilayah itu (mis. BSM Flores Barat IM3 dan BSM Flores Barat 3ID sekaligus). Untuk REGB, isi Branch dengan <b>BALI</b> (mencakup branch Bali Barat &amp; Bali Timur). Untuk REGN, isi Branch dengan <b>NUSRA</b> (mencakup Lombok Barat, Lombok Timur, Sumbawa, Flores Barat, Flores Timur, Sumba, Timor).
           </p>
           <PrimaryBtn
             disabled={!name.trim() || !phone.trim()}
