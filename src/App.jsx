@@ -3,7 +3,7 @@ import {
   ChevronLeft, ChevronRight, Camera, Check, Plus, X, Users,
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
   Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2, Wand2,
-  Download, LayoutGrid, ClipboardList
+  Download, LayoutGrid, ClipboardList, LayoutDashboard
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -112,6 +112,45 @@ function posisiColor(posisi) {
   let h = 0;
   for (let i = 0; i < (posisi || "").length; i++) h = (h * 31 + posisi.charCodeAt(i)) >>> 0;
   return CHIP_PALETTE[h % CHIP_PALETTE.length];
+}
+// Warna per-ORANG (bukan per-posisi seperti posisiColor) -- dipakai di Dashboard/Planner/Team supaya
+// tiap anggota punya 1 warna konsisten sendiri (mis. selalu biru buat Andi, hijau buat Budi, dst).
+function memberColor(memberIdOrName) {
+  const s = String(memberIdOrName || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return CHIP_PALETTE[h % CHIP_PALETTE.length];
+}
+
+// ---------- Status kegiatan yang "hidup" (diturunkan dari tanggal/jam + status rencana/selesai yang
+// SUDAH ADA di Firestore -- TIDAK menambah field baru). 6 state: belum_mulai, hari_ini, berjalan,
+// menunggu_report, selesai, overdue. Dipakai di Dashboard, Planner, dan badge kegiatan lainnya. ----------
+const STATUS_META = {
+  belum_mulai:      { label: "Belum Mulai",      color: "#94A3B8", bg: "#F1F5F9" },
+  hari_ini:         { label: "Hari Ini",         color: "#4F46E5", bg: "#EEF2FF" },
+  berjalan:         { label: "Sedang Berjalan",  color: "#D97706", bg: "#FFFBEB" },
+  menunggu_report:  { label: "Menunggu Report",  color: "#DB2777", bg: "#FDF2F8" },
+  selesai:          { label: "Selesai",          color: "#059669", bg: "#ECFDF5" },
+  overdue:          { label: "Overdue",          color: "#DC2626", bg: "#FEF2F2" },
+};
+function statusOf(activity, now = new Date()) {
+  if (activity.status === "selesai") return "selesai";
+  const parts = String(activity.date || "").split("-").map(Number);
+  if (parts.length !== 3 || !parts[0]) return "belum_mulai";
+  const [y, m, d] = parts;
+  const [hh, mm] = String(activity.time || "00:00").split(":").map(Number);
+  const scheduled = new Date(y, m - 1, d, hh || 0, mm || 0);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const actDateStart = new Date(y, m - 1, d);
+  if (actDateStart < todayStart) return "overdue";
+  if (actDateStart > todayStart) return "belum_mulai";
+  const diffHours = (now - scheduled) / 36e5;
+  if (diffHours < 0) return "hari_ini";
+  if (diffHours <= 3) return "berjalan";
+  return "menunggu_report";
+}
+function progressOf(status) {
+  return { belum_mulai: 0, hari_ini: 10, berjalan: 55, menunggu_report: 80, selesai: 100, overdue: 30 }[status] ?? 0;
 }
 function resizeImage(file, maxDim = 900, quality = 0.72) {
   return new Promise((resolve, reject) => {
@@ -257,7 +296,7 @@ export default function PapanKegiatan() {
   const [infoOpen, setInfoOpen] = useState(false);
   // Tab utama halaman: "kalender" (tampilan lama, default), "galeriBranch" (galeri foto laporan
   // RGE per branch dari grup WA), "rekapKPI" (rekap target vs pencapaian KPI per RGE per bulan).
-  const [mainTab, setMainTab] = useState("kalender");
+  const [mainTab, setMainTab] = useState("dashboard");
   // rgeReports: ditulis oleh n8n (node "Simpan ke Firestore - rgeReports") tiap kali ada laporan
   // posm/event/dtu/desa/school/fwa/nota dari grup RGE WhatsApp. kpiTargets: target bulanan per RGE,
   // diisi manual lewat form di tab "Rekap KPI".
@@ -433,24 +472,38 @@ export default function PapanKegiatan() {
         </div>
       </nav>
 
-      {/* Tab utama: Kalender (lama) | Galeri per Branch | Rekap KPI RGE */}
+      {/* Tab utama: Dashboard | Kalender | Galeri per Branch | Rekap KPI RGE | Team */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1.5 w-fit">
+        <div className="flex gap-1.5 bg-white border border-slate-200 rounded-xl p-1.5 w-fit overflow-x-auto">
           {[
+            { k: "dashboard", label: "Dashboard", icon: LayoutDashboard },
             { k: "kalender", label: "Kalender", icon: CalendarIcon },
             { k: "galeriBranch", label: "Galeri per Branch", icon: LayoutGrid },
             { k: "rekapKPI", label: "Rekap KPI RGE", icon: ClipboardList },
+            { k: "team", label: "Team", icon: Users },
           ].map(({ k, label, icon: Icon }) => (
             <button
               key={k}
               onClick={() => setMainTab(k)}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition ${mainTab === k ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition whitespace-nowrap ${mainTab === k ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}
             >
               <Icon size={15} /> {label}
             </button>
           ))}
         </div>
       </div>
+
+      {mainTab === "dashboard" && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Dashboard activities={activities} members={members} onOpenActivity={(id) => setDetailId(id)} />
+        </div>
+      )}
+
+      {mainTab === "team" && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <TeamOverview activities={activities} members={members} />
+        </div>
+      )}
 
       {mainTab === "galeriBranch" && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -1875,6 +1928,187 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget }) {
           onSave={(patch) => onSaveTarget(editMember.id, monthKey, patch)}
         />
       )}
+    </div>
+  );
+}
+
+// ---------- Dashboard: ringkasan kondisi tim hari ini -- semua dihitung dari activities+members
+// yang sudah ada (statusOf), tidak ada field/collection baru yang dibaca di sini. ----------
+function StatCard({ label, value, color }) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4">
+      <div className="text-2xl font-extrabold" style={{ color }}>{value}</div>
+      <div className="text-[11px] font-semibold text-slate-400 uppercase mt-1">{label}</div>
+    </div>
+  );
+}
+function greetingNow() {
+  const h = new Date().getHours();
+  if (h < 11) return "Selamat Pagi";
+  if (h < 15) return "Selamat Siang";
+  if (h < 18) return "Selamat Sore";
+  return "Selamat Malam";
+}
+function Dashboard({ activities, members, onOpenActivity }) {
+  const today = todayKey();
+  const withStatus = activities.map((a) => ({ ...a, _status: statusOf(a) }));
+  const todaysWithStatus = withStatus.filter((a) => a.date === today).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const memberOf = (id) => members.find((m) => m.id === id);
+
+  const totalToday = todaysWithStatus.length;
+  const activeToday = todaysWithStatus.filter((a) => ["hari_ini", "berjalan", "menunggu_report"].includes(a._status)).length;
+  const doneToday = todaysWithStatus.filter((a) => a._status === "selesai").length;
+  const overdueAll = withStatus.filter((a) => a._status === "overdue").length;
+
+  const monthPrefix = today.slice(0, 7);
+  const teamStats = members
+    .map((m) => {
+      const mine = activities.filter((a) => a.assignedMemberId === m.id && String(a.date || "").startsWith(monthPrefix));
+      const done = mine.filter((a) => a.status === "selesai").length;
+      const pct = mine.length ? Math.round((done / mine.length) * 100) : 0;
+      return { member: m, total: mine.length, done, pct };
+    })
+    .filter((t) => t.total > 0)
+    .sort((a, b) => b.pct - a.pct);
+
+  const needsAttention = withStatus
+    .filter((a) => a._status === "overdue" || a._status === "menunggu_report")
+    .sort((a, b) => `${a.date}${a.time || ""}`.localeCompare(`${b.date}${b.time || ""}`))
+    .slice(0, 8);
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-xl font-bold text-slate-900">{greetingNow()} 👋</h2>
+        <p className="text-sm text-slate-500">
+          Berikut kondisi kegiatan tim hari ini — {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard label="Total Hari Ini" value={totalToday} color="#4F46E5" />
+        <StatCard label="Sedang Aktif" value={activeToday} color="#D97706" />
+        <StatCard label="Selesai" value={doneToday} color="#059669" />
+        <StatCard label="Overdue" value={overdueAll} color="#DC2626" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5">
+          <h3 className="font-bold text-sm text-slate-800 mb-3">Kegiatan Hari Ini</h3>
+          {todaysWithStatus.length === 0 ? (
+            <p className="text-sm text-slate-400 italic">Tidak ada kegiatan hari ini.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {todaysWithStatus.map((a) => {
+                const m = memberOf(a.assignedMemberId);
+                const meta = STATUS_META[a._status];
+                return (
+                  <button key={a.id} onClick={() => onOpenActivity(a.id)} className="text-left border border-slate-100 rounded-xl p-3 hover:border-indigo-200 hover:bg-slate-50 transition">
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: memberColor(a.assignedMemberId) }} />
+                        <span className="text-xs font-bold text-slate-700 uppercase truncate">{m?.name || "Tanpa PIC"}</span>
+                        {a.photos?.length > 0 && <Camera size={12} className="text-slate-400 shrink-0" />}
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: meta.color, background: meta.bg }}>{meta.label}</span>
+                    </div>
+                    <div className="text-sm font-semibold text-slate-800">{a.time ? `${a.time} · ` : ""}{a.title}</div>
+                    <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${progressOf(a._status)}%`, background: meta.color }} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <h3 className="font-bold text-sm text-slate-800 mb-3">Status Tim — {BULAN[new Date().getMonth()]}</h3>
+          {teamStats.length === 0 ? (
+            <p className="text-sm text-slate-400 italic">Belum ada data bulan ini.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {teamStats.map((t) => (
+                <div key={t.member.id}>
+                  <div className="flex items-center justify-between text-xs mb-1 gap-2">
+                    <span className="flex items-center gap-1.5 font-semibold text-slate-700 min-w-0 truncate">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: memberColor(t.member.id) }} />
+                      {t.member.name || t.member.fullName}
+                    </span>
+                    <span className="text-slate-400 shrink-0">{t.pct}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${t.pct}%`, background: memberColor(t.member.id) }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {needsAttention.length > 0 && (
+        <div className="bg-white rounded-2xl border border-red-200 p-5">
+          <h3 className="font-bold text-sm text-red-600 mb-3 flex items-center gap-1.5">⚠️ Perlu Perhatian</h3>
+          <div className="flex flex-col gap-2">
+            {needsAttention.map((a) => {
+              const m = memberOf(a.assignedMemberId);
+              const meta = STATUS_META[a._status];
+              const lateDays = a._status === "overdue" ? Math.max(1, Math.round((new Date() - new Date(a.date)) / 86400000)) : null;
+              return (
+                <button key={a.id} onClick={() => onOpenActivity(a.id)} className="w-full text-left flex items-center justify-between gap-3 text-sm border border-slate-100 hover:border-red-200 hover:bg-red-50/50 rounded-lg px-3 py-2 transition">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color }} />
+                    <span className="font-semibold text-slate-700 shrink-0">{m?.name || "-"}</span>
+                    <span className="text-slate-500 truncate">{a.title}</span>
+                  </span>
+                  <span className="text-xs font-semibold shrink-0" style={{ color: meta.color }}>
+                    {a._status === "overdue" ? `Overdue ${lateDays} hari` : meta.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Team Overview: ringkasan per anggota RGE hari ini + overdue keseluruhan. ----------
+function TeamOverview({ activities, members }) {
+  const today = todayKey();
+  const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  const rows = rgeMembers.map((m) => {
+    const todays = activities.filter((a) => a.assignedMemberId === m.id && a.date === today).map((a) => ({ ...a, _status: statusOf(a) }));
+    const completed = todays.filter((a) => a._status === "selesai").length;
+    const active = todays.filter((a) => ["hari_ini", "berjalan", "menunggu_report"].includes(a._status)).length;
+    const overdueAll = activities.filter((a) => a.assignedMemberId === m.id && statusOf(a) === "overdue").length;
+    return { member: m, total: todays.length, completed, active, overdue: overdueAll };
+  });
+
+  return (
+    <div>
+      <h3 className="font-bold text-base text-slate-900 mb-4">Tim — Hari Ini</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {rows.map((r) => (
+          <div key={r.member.id} className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: memberColor(r.member.id) }} />
+              <span className="font-bold text-slate-800 truncate">{r.member.name}</span>
+              <span className="text-[10px] text-slate-400 ml-auto shrink-0">{r.member.branch}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div><div className="text-lg font-extrabold text-slate-800">{r.total}</div><div className="text-slate-400">Kegiatan hari ini</div></div>
+              <div><div className="text-lg font-extrabold text-emerald-600">{r.completed}</div><div className="text-slate-400">Selesai</div></div>
+              <div><div className="text-lg font-extrabold text-indigo-600">{r.active}</div><div className="text-slate-400">Aktif</div></div>
+              <div><div className="text-lg font-extrabold text-red-600">{r.overdue}</div><div className="text-slate-400">Overdue (semua)</div></div>
+            </div>
+          </div>
+        ))}
+        {rows.length === 0 && <p className="text-sm text-slate-400 italic col-span-full">Belum ada anggota dengan posisi RGE.</p>}
+      </div>
     </div>
   );
 }
