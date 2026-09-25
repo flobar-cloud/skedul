@@ -50,12 +50,16 @@ const REGION_BRANCHES = {
   NUSRA: ["Lombok Barat", "Lombok Timur", "Sumbawa", "Flores Barat", "Flores Timur", "Sumba", "Timor"],
 };
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
-const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding"];
+const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding", "Event", "FWA"];
 
 // Mengelompokkan variasi penulisan jenis kegiatan yang bebas/tidak konsisten (mis. "Attack Desa Seraya",
-// "attack desa marannu", "pasang matpro toko Sinar Jaya", "Reskin toko ABC") ke dalam 4 kategori BAKU
+// "attack desa marannu", "pasang matpro toko Sinar Jaya", "Reskin toko ABC") ke dalam 6 kategori BAKU
 // di atas, berdasarkan kata kunci, supaya data lama (termasuk yang salah pilih kategori atau ditulis
 // bebas lewat WhatsApp sebelum kategori ini dikunci) tetap ikut terkelompok dengan benar.
+// 6 kategori ini SENGAJA disamakan dengan 6 kategori laporan foto grup RGE di WA (posm/event/dtu/
+// desa/school/fwa -- lihat KATEGORI_LABEL & node "Parse Kategori & Field Laporan RGE" di n8n), minus
+// "nota" karena nota cuma dipakai untuk verifikasi pembayaran, bukan jenis kegiatan tersendiri.
+// posm (WA) = Branding (web), sisanya penamaannya sama.
 //
 // PENTING: urutan array ini disengaja — kategori yang lebih spesifik diletakkan lebih dulu. Contoh:
 // "Attack School" harus dicek sebelum "Attack Desa", supaya judul seperti "Attack Sekolah Marannu"
@@ -71,10 +75,12 @@ const JENIS_KEYWORDS = [
     label: "Branding",
   },
   { match: ["dtu", "direct to user", "direct selling"], label: "DTU" },
+  { match: ["event", "bazar", "pameran"], label: "Event" },
+  { match: ["fwa", "wifi rumahan", "home internet"], label: "FWA" },
 ];
-// Dipakai untuk data LAMA yang jenis kegiatannya sudah tidak lagi sesuai 4 kategori baku (mis. "Rapat",
+// Dipakai untuk data LAMA yang jenis kegiatannya sudah tidak lagi sesuai 6 kategori baku (mis. "Rapat",
 // "Kunjungan Lapangan", dll — lihat MigrasiKategoriModal). Untuk kegiatan BARU, jenisKegiatan wajib
-// dipilih langsung dari salah satu dari 4 opsi di JENIS_KEGIATAN_OPSI lewat dropdown (tidak ada lagi
+// dipilih langsung dari salah satu dari 6 opsi di JENIS_KEGIATAN_OPSI lewat dropdown (tidak ada lagi
 // input bebas), jadi normalizeJenisKegiatan di bawah ini terutama berguna untuk merapikan data lama.
 function normalizeJenisKegiatan(raw) {
   const t = (raw || "").toLowerCase();
@@ -87,13 +93,15 @@ function normalizeJenisKegiatan(raw) {
 // Menentukan form "Hasil Kegiatan" mana yang relevan untuk suatu jenis kegiatan — dipakai supaya
 // isian di modal detail kegiatan sama persis dengan format yang dipakai bot WhatsApp (lihat n8n:
 // fungsi kategoriHasil di node "Cek & Susun Aksi Hasil Kegiatan" / "Cek & Proses Balasan Hasil Kegiatan").
-// - "jualan": Attack Desa, Attack Sekolah, DTU -> Jualan SP IM3 / SP 3ID / Hifi
+// - "jualan": Attack Desa, Attack Sekolah, DTU, Event -> Jualan SP IM3 / SP 3ID / Hifi
 // - "branding": Branding -> Pasang poster / shopblind / Branding vinil / spanduk / rontek
-// - null: jenis kegiatan lain (Rapat, Kunjungan, dst) tidak punya form hasil
+// - null: jenis kegiatan lain (Rapat, Kunjungan, FWA, dst) tidak punya form hasil manual di sini --
+//   khusus FWA, pencapaiannya sudah otomatis kehitung lewat laporan foto grup RGE (lihat tab Rekap
+//   KPI RGE), jadi tidak perlu diinput ulang manual di modal ini.
 function kategoriHasil(jenisKegiatanRaw) {
   const label = normalizeJenisKegiatan(jenisKegiatanRaw);
   if (label === "Branding") return "branding";
-  if (label === "Attack Desa" || label === "Attack School" || label === "DTU") return "jualan";
+  if (label === "Attack Desa" || label === "Attack School" || label === "DTU" || label === "Event") return "jualan";
   return null;
 }
 
@@ -296,7 +304,14 @@ export default function PapanKegiatan() {
   }
 
   async function addMember(member) {
-    try { await addDoc(collection(db, "members"), member); }
+    // Document ID Firestore dibuat dari nomor WA (bukan auto-generate) -- supaya konsisten dengan
+    // sync otomatis Sheet MEMBER -> Firestore dari n8n (docId = nomor WA juga). Kalau ID-nya beda,
+    // member yang sama bisa kesimpan 2x (dobel) di web.
+    const phone = String(member.phone || "").replace(/\D/g, "");
+    try {
+      if (phone) await setDoc(doc(db, "members", phone), member);
+      else await addDoc(collection(db, "members"), member);
+    }
     catch (e) { console.error(e); notify("Gagal menyimpan anggota baru."); }
   }
   async function updateMember(id, patch) {
@@ -1526,7 +1541,7 @@ function GaleriFoto({ activities, members, cursor, onOpen }) {
 // ---------- Galeri per Branch: foto laporan RGE (posm/event/dtu/desa/school/fwa/nota) dari WA,
 // dikelompokkan per branch (tab), sumber datanya koleksi Firestore "rgeReports" yang ditulis n8n. ----------
 const KATEGORI_LABEL = {
-  posm: "POSM", event: "Event", dtu: "DTU", desa: "Desa",
+  posm: "Branding", event: "Event", dtu: "DTU", desa: "Desa",
   school: "School", fwa: "FWA", nota: "Nota",
 };
 function ringkasanLaporan(r) {
