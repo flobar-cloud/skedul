@@ -552,9 +552,9 @@ export default function PapanKegiatan() {
   }
 
   const SidebarContent = (
-    <div className="h-full flex flex-col bg-[#0B1220] text-white">
-      <div className="flex items-center gap-3 px-5 pt-6 pb-5">
-        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-sm shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#DB2777)" }}><Rocket size={19} /></div>
+    <div className="h-full flex flex-col bg-[#0B1220] text-white overflow-hidden">
+      <div className="flex items-center gap-3 px-4 pt-4 pb-4">
+        <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-white shadow-sm shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#DB2777)" }}><Rocket size={19} /></div>
         <div className="min-w-0">
           <div className="font-extrabold tracking-tight truncate">Team Planner</div>
           <div className="text-[10px] text-slate-400 font-semibold tracking-wide">PLAN · EXECUTE · ACHIEVE</div>
@@ -562,12 +562,12 @@ export default function PapanKegiatan() {
         <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-slate-400 hover:text-white"><X size={18} /></button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 flex flex-col gap-1">
+      <nav className="flex-1 overflow-hidden px-3 flex flex-col gap-0.5">
         {NAV_ITEMS.map(({ k, label, icon: Icon }) => {
           const active = activeNavKey === k;
           const showAlert = k === "notifikasi" && notifItems.length > 0;
           return (
-            <button key={k} onClick={() => goToNav(k)} className={`relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
+            <button key={k} onClick={() => goToNav(k)} className={`relative flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-semibold transition ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
               <Icon size={17} className="shrink-0" />
               <span className="truncate">{label}</span>
               {showAlert && <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">{notifItems.length}</span>}
@@ -576,23 +576,23 @@ export default function PapanKegiatan() {
         })}
       </nav>
 
-      <div className="px-3 pb-3 pt-2">
-        <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#065F46,#0D9488)" }}>
+      <div className="px-3 pb-2 pt-2">
+        <div className="rounded-2xl p-3 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#065F46,#0D9488)" }}>
           <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
           <div className="relative">
-            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center mb-3"><MessageCircle size={16} /></div>
+            <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center mb-2"><MessageCircle size={16} /></div>
             <div className="font-extrabold text-sm">Otomasi Aktif</div>
-            <div className="text-[11px] text-emerald-100 mt-1 leading-relaxed">Reminder ke tim &amp; Report via WA dengan n8n + Waha</div>
-            <button onClick={() => setInfoOpen(true)} className="mt-3 w-full text-xs font-bold bg-white text-emerald-700 rounded-lg py-1.5 flex items-center justify-center gap-1 hover:bg-emerald-50 transition">Lihat Detail <ArrowUpRight size={13} /></button>
+            <div className="text-[10px] text-emerald-100 mt-1 leading-relaxed">Reminder ke tim &amp; Report via WA dengan n8n + Waha</div>
+            <button onClick={() => setInfoOpen(true)} className="mt-2 w-full text-[11px] font-bold bg-white text-emerald-700 rounded-lg py-1.5 flex items-center justify-center gap-1 hover:bg-emerald-50 transition">Lihat Detail <ArrowUpRight size={13} /></button>
           </div>
         </div>
       </div>
 
-      <div className="px-3 pb-5">
+      <div className="px-3 pb-3">
         <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-1 mb-2">Quick Action</div>
         <div className="flex flex-col gap-1.5">
-          <button onClick={() => { setShowAddActivity(todayKey()); setSidebarOpen(false); }} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 transition text-white"><Plus size={15} /> Tambah Jadwal</button>
-          <button onClick={() => { setShowSim(true); setSidebarOpen(false); }} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Send size={15} /> Kirim Report WA</button>
+          <button onClick={() => { setShowAddActivity(todayKey()); setSidebarOpen(false); }} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold bg-indigo-600 hover:bg-indigo-500 transition text-white"><Plus size={15} /> Tambah Jadwal</button>
+          <button onClick={() => { setShowSim(true); setSidebarOpen(false); }} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Send size={15} /> Kirim Report WA</button>
           <div className="relative">
             <button onClick={() => { setShowMigrasi(true); setSidebarOpen(false); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Wand2 size={15} /> Rapikan Kategori</button>
             {activities.some((a) => !JENIS_KEGIATAN_OPSI.includes(a.jenisKegiatan)) && <span className="absolute top-1.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 border-2 border-[#0B1220]" />}
@@ -614,7 +614,7 @@ export default function PapanKegiatan() {
         #root { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; text-align: left !important; min-height: 100vh; }
       `}</style>
       {/* Sidebar — desktop */}
-      <aside className="hidden lg:block w-[260px] shrink-0 sticky top-0 h-screen">{SidebarContent}</aside>
+      <aside className="hidden lg:block w-[248px] xl:w-[255px] shrink-0 sticky top-0 h-screen">{SidebarContent}</aside>
 
       {/* Sidebar — mobile overlay */}
       {sidebarOpen && (
@@ -717,7 +717,7 @@ export default function PapanKegiatan() {
         {/* Page content */}
         <main className="flex-1 min-w-0">
           {mainTab === "dashboard" && (
-            <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-5 lg:px-6 py-5">
               <Dashboard
                 activities={activities} members={members} rgeReports={rgeReports}
                 weekCursor={weekCursor} setWeekCursor={setWeekCursor}
@@ -904,7 +904,7 @@ function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCur
     <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden"><div className="px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/70"><div><div className="font-extrabold text-slate-900">{monthLabel}</div><div className="text-[10px] text-slate-400 font-semibold">{weekKeys[0]} — {weekKeys[6]}</div></div><div className="flex items-center gap-3 text-[10px] font-bold text-slate-400"><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-500"/> Berjalan</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-rose-500"/> Perhatian</span></div></div>
       <div className="overflow-x-auto"><div className="min-w-[1180px]"><div className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-200 bg-white sticky top-0 z-10"><div className="p-3 text-[10px] font-black uppercase tracking-wider text-slate-400">Anggota Tim</div>{days.map((d,i)=>{const key=weekKeys[i];const isToday=key===today;const count=weekActivities.filter(a=>a.date===key).length;return <div key={key} className={`p-2.5 border-l border-slate-100 ${isToday?"bg-indigo-50":""}`}><div className={`text-[10px] font-black uppercase ${isToday?"text-indigo-600":"text-slate-400"}`}>{HARI[i]}</div><div className={`text-base font-black ${isToday?"text-indigo-700":"text-slate-800"}`}>{d.getDate()}</div><div className="text-[9px] text-slate-400">{count} kegiatan</div></div>})}</div>
-      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key)} className="w-full h-7 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center justify-center"><Plus size={13}/></button></div>})}</div>)}
+      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key)} className="w-full h-7 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center justify-center"><Plus size={13}/></button></div>})}</div>)}
       {visibleMembers.length===0&&<div className="p-10 text-center text-sm text-slate-400">Belum ada anggota tim.</div>}</div></div></div>
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className="flex items-center justify-between mb-3"><div><h3 className="font-extrabold text-sm text-slate-900">Status operasional minggu ini</h3><p className="text-[10px] text-slate-400">Progress dihitung dari status kegiatan yang sudah ada.</p></div><span className="text-lg font-black text-indigo-600">{completion}%</span></div><div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" style={{width:`${completion}%`}}/></div></div><div className="bg-slate-900 rounded-2xl p-4 shadow-sm text-white"><div className="flex items-center gap-2 mb-2"><Zap size={15} className="text-amber-300"/><h3 className="font-extrabold text-sm">Automation Ready</h3></div><p className="text-[10px] text-slate-300 leading-relaxed">Planner membaca status kegiatan yang sama dengan alur reminder dan report WhatsApp. Tidak ada field Firestore baru yang diperlukan.</p><div className="flex gap-2 mt-3"><span className="px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 text-[9px] font-bold">WA Gateway</span><span className="px-2 py-1 rounded-lg bg-violet-500/15 text-violet-300 text-[9px] font-bold">n8n</span></div></div></div>
   </div>;
@@ -2346,65 +2346,70 @@ function Dashboard({ activities, members, rgeReports, weekCursor, setWeekCursor,
   const dayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-3xl p-6 sm:p-7 text-white shadow-sm" style={{ background: "linear-gradient(120deg,#0F172A 0%,#312E81 45%,#4F46E5 78%,#7C3AED 100%)" }}>
-        <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-white/10" />
-        <div className="absolute right-24 -bottom-24 w-64 h-64 rounded-full bg-fuchsia-400/10" />
-        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-100 text-[11px] font-semibold mb-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-300" /> Team operation center
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{greetingNow()} 👋</h2>
-            <p className="text-indigo-100 text-sm mt-1">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
-            <p className="text-indigo-200 text-xs mt-3">{dayLabel}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 min-w-[260px]">
-            <div className="rounded-2xl bg-white/10 border border-white/10 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Execution hari ini</div>
-              <div className="text-2xl font-extrabold mt-1">{completion}%</div>
-            </div>
-            <div className="rounded-2xl bg-white/10 border border-white/10 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Bulan berjalan</div>
-              <div className="text-2xl font-extrabold mt-1">{monthRate}%</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stat cards */}
-      <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        {[
-          { label: "Total Jadwal Hari Ini", value: totalToday, icon: CalendarIcon, tone: "#4F46E5", note: `dari ${members.length} anggota tim` },
-          { label: "Kegiatan Selesai", value: doneToday, icon: CheckCircle2, tone: "#059669", note: `${completion}% dari ${totalToday} jadwal` },
-          { label: "Menunggu Report WA", value: pendingReport, icon: MessageCircle, tone: "#DB2777", note: overdue ? `${overdue} overdue perlu ditindak` : "belum mengirim" },
-          { label: "Pencapaian KPI (Minggu Ini)", value: `${weekRate}%`, icon: Award, tone: "#D97706", note: `dari target · ${weekDelta >= 0 ? "+" : ""}${weekDelta}%` },
-        ].map((k) => {
-          const Icon = k.icon;
-          return (
-            <div key={k.label} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between">
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${k.tone}14`, color: k.tone }}><Icon size={18} /></span>
-                <ArrowUpRight size={15} className="text-slate-300" />
+    <div className="flex flex-col gap-4">
+      {/* Dashboard utama: kiri = greeting + KPI + jadwal, kanan = ringkasan/monitoring.
+          Struktur ini mengikuti komposisi dashboard referensi sehingga panel kanan tidak turun
+          ke bawah ketika viewport desktop menyempit. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_350px] gap-4 items-start">
+        <div className="min-w-0 flex flex-col gap-4">
+          {/* Hero */}
+          <section className="relative overflow-hidden rounded-2xl p-5 text-white shadow-sm" style={{ background: "linear-gradient(120deg,#0F172A 0%,#312E81 45%,#4F46E5 78%,#7C3AED 100%)" }}>
+            <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-white/10" />
+            <div className="absolute right-24 -bottom-24 w-64 h-64 rounded-full bg-fuchsia-400/10" />
+            <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-100 text-[11px] font-semibold mb-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-300" /> Team operation center
+                </div>
+                <h2 className="text-2xl font-extrabold tracking-tight">{greetingNow()} 👋</h2>
+                <p className="text-indigo-100 text-sm mt-1">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
+                <p className="text-indigo-200 text-[11px] mt-2">{dayLabel}</p>
               </div>
-              <div className="text-2xl font-extrabold text-slate-900 mt-3">{k.value}</div>
-              <div className="text-xs font-bold text-slate-600 mt-0.5">{k.label}</div>
-              <div className="text-[10px] text-slate-400 mt-1">{k.note}</div>
+              <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:min-w-[250px]">
+                <div className="rounded-xl bg-white/10 border border-white/10 p-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Execution hari ini</div>
+                  <div className="text-2xl font-extrabold mt-1">{completion}%</div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/10 p-2.5">
+                  <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Bulan berjalan</div>
+                  <div className="text-2xl font-extrabold mt-1">{monthRate}%</div>
+                </div>
+              </div>
             </div>
-          );
-        })}
-      </section>
+          </section>
 
-      {/* Main grid: Jadwal Tim (kiri) + widgets (kanan) */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
-        <div className="xl:col-span-2">
+          {/* Stat cards */}
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: "Total Jadwal Hari Ini", value: totalToday, icon: CalendarIcon, tone: "#4F46E5", note: `dari ${members.length} anggota tim` },
+              { label: "Kegiatan Selesai", value: doneToday, icon: CheckCircle2, tone: "#059669", note: `${completion}% dari ${totalToday} jadwal` },
+              { label: "Menunggu Report WA", value: pendingReport, icon: MessageCircle, tone: "#DB2777", note: overdue ? `${overdue} overdue perlu ditindak` : "belum mengirim" },
+              { label: "Pencapaian KPI (Minggu Ini)", value: `${weekRate}%`, icon: Award, tone: "#D97706", note: `dari target · ${weekDelta >= 0 ? "+" : ""}${weekDelta}%` },
+            ].map((k) => {
+              const Icon = k.icon;
+              return (
+                <div key={k.label} className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <span className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: `${k.tone}14`, color: k.tone }}><Icon size={17} /></span>
+                    <ArrowUpRight size={14} className="text-slate-300" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-slate-900 mt-2">{k.value}</div>
+                  <div className="text-xs font-bold text-slate-600 mt-0.5">{k.label}</div>
+                  <div className="text-[10px] text-slate-400 mt-1">{k.note}</div>
+                </div>
+              );
+            })}
+          </section>
+
+          {/* Jadwal Tim */}
           <JadwalTimWidget
             activities={activities} members={members} weekCursor={weekCursor} setWeekCursor={setWeekCursor}
             onOpenActivity={onOpenActivity} onAddActivity={onAddActivity} onSeeFullSchedule={onSeeFullSchedule}
           />
         </div>
-        <div className="flex flex-col gap-5">
+
+        {/* Right rail: selalu dimulai sejajar dengan hero */}
+        <div className="flex flex-col gap-4 min-w-0">
           <DonutRingkasan categoryStats={categoryStats} total={totalToday} />
           <KpiGaugeCard rate={weekRate} delta={weekDelta} />
           <ReportWaCard items={reportPendingItems} members={members} onOpenActivity={onOpenActivity} onSeeAllNotif={onSeeAllNotif} />
@@ -2413,7 +2418,7 @@ function Dashboard({ activities, members, rgeReports, weekCursor, setWeekCursor,
       </div>
 
       {/* Bottom row: Progress Tim / Perlu Perhatian / Automation Center */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Progress tim */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -2490,7 +2495,7 @@ function JadwalTimWidget({ activities, members, weekCursor, setWeekCursor, onOpe
   const todaysList = activities.filter((a) => a.date === today).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden h-full flex flex-col">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
       <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><CalendarIcon size={17} /></span>
@@ -2595,12 +2600,12 @@ function DonutRingkasan({ categoryStats, total }) {
   });
   const gradient = stops.length ? `conic-gradient(${stops.join(",")}, #E2E8F0 ${acc}% 100%)` : "conic-gradient(#F1F5F9 0 100%)";
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-      <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-900 text-sm">Ringkasan Kegiatan</h3><BarChart2 size={16} className="text-slate-300" /></div>
-      <div className="flex items-center gap-5">
-        <div className="relative w-24 h-24 shrink-0 rounded-full" style={{ background: gradient }}>
-          <div className="absolute inset-[9px] bg-white rounded-full flex flex-col items-center justify-center">
-            <span className="text-lg font-extrabold text-slate-900">{total}</span>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+      <div className="flex items-center justify-between mb-3"><h3 className="font-bold text-slate-900 text-sm">Ringkasan Kegiatan</h3><BarChart2 size={16} className="text-slate-300" /></div>
+      <div className="flex items-center gap-4">
+        <div className="relative w-20 h-20 shrink-0 rounded-full" style={{ background: gradient }}>
+          <div className="absolute inset-[8px] bg-white rounded-full flex flex-col items-center justify-center">
+            <span className="text-base font-extrabold text-slate-900">{total}</span>
             <span className="text-[8px] text-slate-400 text-center leading-tight">Total<br />Kegiatan</span>
           </div>
         </div>
