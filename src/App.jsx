@@ -472,89 +472,124 @@ export default function PapanKegiatan() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: COLORS.bg }}>
-      {/* Modern application shell — fungsi tombol lama tetap sama */}
-      <nav className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shadow-[0_1px_12px_rgba(15,23,42,0.04)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="min-h-16 flex items-center justify-between gap-4 py-2">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-sm" style={{ background: "linear-gradient(135deg,#4F46E5,#7C3AED)" }}><LayoutDashboard size={19} /></div>
-              <div className="min-w-0">
-                <div className="font-extrabold text-slate-900 tracking-tight truncate">Team Planner</div>
-                <div className="text-[10px] text-slate-400 font-semibold tracking-wide">PLAN · EXECUTE · ACHIEVE</div>
-              </div>
-            </div>
-            <div className="hidden md:flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> WA Gateway</span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-violet-50 text-violet-700 text-[10px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-violet-500" /> n8n Automation</span>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <IconBtn onClick={() => setShowMembers(true)} title="Sheet Anggota"><Users size={18} /></IconBtn>
-              <IconBtn onClick={() => setShowSim(true)} title="Simulasi WhatsApp"><Smartphone size={18} /></IconBtn>
-              <div className="relative">
-                <IconBtn onClick={() => setShowMigrasi(true)} title="Rapikan kategori kegiatan lama"><Wand2 size={18} /></IconBtn>
-                {activities.some((a) => !JENIS_KEGIATAN_OPSI.includes(a.jenisKegiatan)) && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 border-2 border-white" />}
-              </div>
-              <IconBtn onClick={() => setInfoOpen(true)} title="Cara kerja"><Info size={18} /></IconBtn>
-              <PrimaryBtn onClick={() => setShowAddActivity(todayKey())} className="ml-1"><Plus size={16} /><span className="hidden sm:inline">Tambah Jadwal</span></PrimaryBtn>
-            </div>
+    <div className="min-h-screen bg-[#F4F7FB] text-slate-900">
+      {/* Boardroom shell: visual layer only — all existing actions/state remain wired to the same handlers. */}
+      <aside className="fixed inset-y-0 left-0 z-50 hidden w-[252px] flex-col bg-[#07152F] text-white lg:flex">
+        <div className="flex h-[78px] items-center gap-3 px-6 border-b border-white/10">
+          <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[#07152F] shadow-lg">
+            <LayoutDashboard size={23} strokeWidth={2.4} />
+            <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-indigo-400 ring-2 ring-[#07152F]" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[18px] font-black tracking-tight">Team Planner</div>
+            <div className="text-[10px] font-semibold tracking-[0.16em] text-slate-300">PLAN · EXECUTE · ACHIEVE</div>
           </div>
         </div>
-      </nav>
 
-      {/* Primary navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex gap-1.5 bg-slate-100/80 border border-slate-200 rounded-2xl p-1.5 overflow-x-auto max-w-full">
+        <div className="flex-1 overflow-y-auto px-4 py-5">
+          <div className="space-y-1.5">
             {[
               { k: "dashboard", label: "Beranda", icon: LayoutDashboard },
               { k: "kalender", label: "Jadwal Tim", icon: CalendarIcon },
-              { k: "galeriBranch", label: "Laporan & Galeri", icon: LayoutGrid },
-              { k: "rekapKPI", label: "Pencapaian KPI", icon: ClipboardList },
+              { k: "galeriBranch", label: "Laporan & Rekap", icon: LayoutGrid },
+              { k: "rekapKPI", label: "Pencapaian KPI", icon: BarChart2 },
               { k: "team", label: "Anggota Tim", icon: Users },
             ].map(({ k, label, icon: Icon }) => (
-              <button key={k} onClick={() => setMainTab(k)} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap ${mainTab === k ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800 hover:bg-white/70"}`}>
-                <Icon size={15} /> {label}
+              <button
+                key={k}
+                onClick={() => setMainTab(k)}
+                className={`group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${mainTab === k ? "bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-950/30" : "text-slate-300 hover:bg-white/8 hover:text-white"}`}
+              >
+                <Icon size={19} className={mainTab === k ? "text-white" : "text-slate-300 group-hover:text-white"} />
+                <span>{label}</span>
               </button>
             ))}
           </div>
-          <div className="hidden xl:flex items-center gap-2 text-[10px] font-bold text-slate-400 shrink-0"><Bell size={14} /> Live Firestore</div>
+
+          <div className="mt-7 rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/15 to-cyan-400/5 p-4">
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 shadow-lg shadow-emerald-950/30">
+              <MessageCircle size={21} />
+            </div>
+            <div className="text-sm font-extrabold">Otomatisasi Aktif</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-300">Reminder ke team & Report via WA dengan n8n + Waha</p>
+            <button onClick={() => setInfoOpen(true)} className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-300 px-4 py-2 text-[11px] font-black text-slate-900 hover:bg-emerald-200">
+              Lihat Detail <ArrowUpRight size={13} />
+            </button>
+          </div>
+
+          <div className="mt-7">
+            <div className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Quick Action</div>
+            <div className="space-y-2">
+              <button onClick={() => setShowAddActivity(todayKey())} className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 hover:bg-white/10">
+                <Plus size={16} /> Tambah Jadwal
+              </button>
+              <button onClick={() => setShowMembers(true)} className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 hover:bg-white/10">
+                <Users size={16} /> Anggota Tim
+              </button>
+              <button onClick={() => setShowSim(true)} className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 hover:bg-white/10">
+                <Smartphone size={16} /> Simulasi WhatsApp
+              </button>
+              <button onClick={() => setShowMigrasi(true)} className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 hover:bg-white/10">
+                <Wand2 size={16} /> Rapikan Kategori Lama
+              </button>
+              <button onClick={() => setInfoOpen(true)} className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 hover:bg-white/10">
+                <Info size={16} /> Cara Kerja Sistem
+              </button>
+            </div>
+          </div>
         </div>
+
+        <div className="border-t border-white/10 px-5 py-4 text-[10px] text-slate-500">
+          <div className="flex items-center justify-between"><span>Live Firestore</span><span className="h-2 w-2 rounded-full bg-emerald-400" /></div>
+          <div className="mt-1">WA Gateway · n8n Automation</div>
+        </div>
+      </aside>
+
+      <div className="lg:pl-[252px]">
+        <header className="sticky top-0 z-40 h-[72px] border-b border-slate-200 bg-white/95 backdrop-blur-xl">
+          <div className="flex h-full items-center justify-between gap-4 px-4 sm:px-6 xl:px-8">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="lg:hidden flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white"><LayoutDashboard size={19} /></div>
+              <div className="relative hidden w-full max-w-[470px] md:block">
+                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input aria-label="Pencarian" placeholder="Cari nama tim, aktivitas, atau lokasi..." className="h-11 w-full rounded-xl border border-transparent bg-[#F1F5FA] pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-indigo-200 focus:bg-white focus:ring-4 focus:ring-indigo-50" />
+              </div>
+              <div className="hidden xl:flex items-center gap-2 text-[10px] font-bold text-slate-400"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Live data</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <button onClick={() => setInfoOpen(true)} className="relative rounded-xl p-2.5 text-slate-500 hover:bg-slate-100" title="Cara kerja"><Bell size={19} /><span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white">3</span></button>
+              <div className="hidden sm:block h-7 w-px bg-slate-200" />
+              <button onClick={() => setShowSim(true)} className="hidden sm:flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-[10px] font-black text-emerald-700 hover:bg-emerald-100"><MessageCircle size={14} /> WA Gateway <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /></button>
+              <button onClick={() => setShowMembers(true)} className="flex items-center gap-2 rounded-full pl-1 pr-2 hover:bg-slate-50">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-black text-slate-600">AM</span>
+                <span className="hidden md:block text-left"><span className="block text-[11px] font-black text-slate-800">Team Admin</span><span className="block text-[9px] text-slate-400">Administrator</span></span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="px-4 py-5 sm:px-6 xl:px-8">
+          <div className="mx-auto max-w-[1480px]">
+            <div className="mb-5 flex items-center justify-between gap-3 lg:hidden">
+              <div className="flex gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-sm ring-1 ring-slate-200">
+                {[
+                  { k: "dashboard", label: "Beranda" }, { k: "kalender", label: "Jadwal" }, { k: "galeriBranch", label: "Laporan" }, { k: "rekapKPI", label: "KPI" }, { k: "team", label: "Tim" },
+                ].map((x) => <button key={x.k} onClick={() => setMainTab(x.k)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold ${mainTab === x.k ? "bg-indigo-600 text-white" : "text-slate-500"}`}>{x.label}</button>)}
+              </div>
+            </div>
+
+            {mainTab === "dashboard" && <Dashboard activities={activities} members={members} rgeReports={rgeReports} onOpenActivity={(id) => setDetailId(id)} />}
+            {mainTab === "team" && <TeamOverview activities={activities} members={members} />}
+            {mainTab === "galeriBranch" && <GaleriPerBranch members={members} rgeReports={rgeReports} />}
+            {mainTab === "rekapKPI" && <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} />}
+            {mainTab === "kalender" && (
+              plannerView === "weekly"
+                ? <WeeklyPlanner activities={activities} members={members} rgeReports={rgeReports} weekCursor={weekCursor} setWeekCursor={setWeekCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
+                : <MonthlyPlanner activities={activities} members={members} cursor={cursor} setCursor={setCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
+            )}
+          </div>
+        </main>
       </div>
-
-      {mainTab === "dashboard" && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <Dashboard activities={activities} members={members} rgeReports={rgeReports} onOpenActivity={(id) => setDetailId(id)} />
-        </div>
-      )}
-
-      {mainTab === "team" && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <TeamOverview activities={activities} members={members} />
-        </div>
-      )}
-
-      {mainTab === "galeriBranch" && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <GaleriPerBranch members={members} rgeReports={rgeReports} />
-        </div>
-      )}
-
-      {mainTab === "rekapKPI" && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} />
-        </div>
-      )}
-
-      {mainTab === "kalender" && (
-        <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {plannerView === "weekly" ? (
-            <WeeklyPlanner activities={activities} members={members} rgeReports={rgeReports} weekCursor={weekCursor} setWeekCursor={setWeekCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
-          ) : (
-            <MonthlyPlanner activities={activities} members={members} cursor={cursor} setCursor={setCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
-          )}
-        </div>
-      )}
 
       {/* Toast */}
       {toast && (
@@ -1988,11 +2023,16 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget }) {
 
 // ---------- Dashboard: ringkasan kondisi tim hari ini -- semua dihitung dari activities+members
 // yang sudah ada (statusOf), tidak ada field/collection baru yang dibaca di sini. ----------
-function StatCard({ label, value, color }) {
+function StatCard({ label, value, color, note, icon: Icon }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4">
-      <div className="text-2xl font-extrabold" style={{ color }}>{value}</div>
-      <div className="text-[11px] font-semibold text-slate-400 uppercase mt-1">{label}</div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_4px_18px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: `${color}12`, color }}><Icon size={18} /></span>
+        <span className="text-[10px] font-bold text-slate-400">Hari ini</span>
+      </div>
+      <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">{value}</div>
+      <div className="mt-0.5 text-xs font-bold text-slate-700">{label}</div>
+      <div className="mt-1 text-[10px] text-slate-400">{note}</div>
     </div>
   );
 }
@@ -2014,13 +2054,11 @@ function Dashboard({ activities, members, rgeReports, onOpenActivity }) {
   });
   const todays = withStatus.filter((a) => a.date === today).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
   const monthPrefix = today.slice(0, 7);
-
   const totalToday = todays.length;
   const doneToday = todays.filter((a) => a._status === "selesai").length;
   const pendingReport = todays.filter((a) => ["menunggu_report", "overdue"].includes(a._status) && !a._report.received).length;
   const overdue = withStatus.filter((a) => a._status === "overdue").length;
   const completion = totalToday ? Math.round((doneToday / totalToday) * 100) : 0;
-
   const monthActs = withStatus.filter((a) => String(a.date || "").startsWith(monthPrefix));
   const monthDone = monthActs.filter((a) => a._status === "selesai").length;
   const monthRate = monthActs.length ? Math.round((monthDone / monthActs.length) * 100) : 0;
@@ -2028,7 +2066,15 @@ function Dashboard({ activities, members, rgeReports, onOpenActivity }) {
   const categoryStats = JENIS_KEGIATAN_OPSI.map((label) => ({
     label,
     total: todays.filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === label).length,
-  })).filter((x) => x.total > 0);
+  })).filter((x) => x.total > 0).sort((a, b) => b.total - a.total);
+  const categoryTotal = categoryStats.reduce((sum, x) => sum + x.total, 0);
+  let running = 0;
+  const donutStops = categoryStats.map((x, i) => {
+    const startPct = categoryTotal ? (running / categoryTotal) * 100 : 0;
+    running += x.total;
+    const endPct = categoryTotal ? (running / categoryTotal) * 100 : 100;
+    return `${CHIP_PALETTE[i % CHIP_PALETTE.length]} ${startPct}% ${endPct}%`;
+  }).join(", ");
 
   const teamStats = members
     .filter((m) => String(m.posisi || "").toUpperCase() !== "BSM")
@@ -2042,164 +2088,112 @@ function Dashboard({ activities, members, rgeReports, onOpenActivity }) {
     .slice(0, 6);
 
   const attention = withStatus
-    .filter((a) => a._status === "overdue" || (["menunggu_report"].includes(a._status) && !a._report.received))
+    .filter((a) => a._status === "overdue" || (a._status === "menunggu_report" && !a._report.received))
     .sort((a, b) => `${a.date}${a.time || ""}`.localeCompare(`${b.date}${b.time || ""}`))
     .slice(0, 6);
 
-  const topCategory = categoryStats.sort((a, b) => b.total - a.total)[0];
+  const recent = [...withStatus]
+    .filter((a) => a.date <= today)
+    .sort((a, b) => `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`))
+    .slice(0, 5);
+  const pendingRows = todays.filter((a) => !a._report.received).slice(0, 4);
   const dayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-3xl p-6 sm:p-7 text-white shadow-sm" style={{ background: "linear-gradient(135deg,#312E81 0%,#4F46E5 52%,#7C3AED 100%)" }}>
-        <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-white/10" />
-        <div className="absolute right-24 -bottom-24 w-64 h-64 rounded-full bg-fuchsia-400/10" />
-        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+      {/* Hero — mountain-style visual made with CSS so no new asset or dependency is required. */}
+      <section className="relative min-h-[156px] overflow-hidden rounded-2xl bg-[#0B1B3A] p-6 text-white shadow-[0_12px_30px_rgba(15,23,42,0.10)] sm:p-7">
+        <div className="absolute inset-0 opacity-80" style={{ background: "radial-gradient(circle at 75% 15%, rgba(96,165,250,.55), transparent 28%), linear-gradient(115deg,#0B1B3A 0%,#183C68 48%,#4A6C80 100%)" }} />
+        <div className="absolute -bottom-1 right-[8%] h-24 w-[52%] opacity-60" style={{ clipPath: "polygon(0 100%, 12% 62%, 19% 76%, 31% 28%, 39% 58%, 53% 4%, 61% 52%, 73% 30%, 82% 63%, 100% 34%, 100% 100%)", background: "linear-gradient(145deg,#25384A,#0A1426)" }} />
+        <div className="absolute bottom-0 right-[22%] h-28 w-[34%] opacity-80" style={{ clipPath: "polygon(0 100%, 24% 48%, 39% 70%, 55% 12%, 68% 52%, 84% 35%, 100% 100%)", background: "linear-gradient(145deg,#566D78,#15263B)" }} />
+        <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-100 text-[11px] font-semibold mb-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-300" /> Team operation center
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{greetingNow()} 👋</h2>
-            <p className="text-indigo-100 text-sm mt-1">Pantau jadwal, eksekusi, report WhatsApp, dan pencapaian tim dalam satu layar.</p>
-            <p className="text-indigo-200 text-xs mt-3">{dayLabel}</p>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold text-slate-200"><span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Team Operation Center</div>
+            <h2 className="text-2xl font-black tracking-tight sm:text-3xl">{greetingNow()}, Team 👋</h2>
+            <p className="mt-1 max-w-xl text-sm text-slate-200">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
+            <p className="mt-2 text-[10px] font-semibold text-slate-300">{dayLabel}</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 min-w-[260px]">
-            <div className="rounded-2xl bg-white/10 border border-white/10 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Execution hari ini</div>
-              <div className="text-2xl font-extrabold mt-1">{completion}%</div>
-            </div>
-            <div className="rounded-2xl bg-white/10 border border-white/10 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Bulan berjalan</div>
-              <div className="text-2xl font-extrabold mt-1">{monthRate}%</div>
-            </div>
+          <div className="grid min-w-[250px] grid-cols-2 gap-2">
+            <div className="rounded-xl border border-white/15 bg-white/10 p-3 backdrop-blur-sm"><div className="text-[9px] font-bold uppercase tracking-wider text-slate-300">Execution hari ini</div><div className="mt-1 text-2xl font-black">{completion}%</div></div>
+            <div className="rounded-xl border border-white/15 bg-white/10 p-3 backdrop-blur-sm"><div className="text-[9px] font-bold uppercase tracking-wider text-slate-300">Bulan berjalan</div><div className="mt-1 text-2xl font-black">{monthRate}%</div></div>
           </div>
         </div>
       </section>
 
-      {/* KPI cards */}
-      <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        {[
-          { label: "Jadwal Hari Ini", value: totalToday, icon: CalendarIcon, tone: "#4F46E5", note: `${doneToday} selesai` },
-          { label: "Selesai", value: doneToday, icon: CheckCircle2, tone: "#059669", note: `${completion}% dari hari ini` },
-          { label: "Menunggu Report", value: pendingReport, icon: MessageCircle, tone: "#DB2777", note: "Follow-up via WA" },
-          { label: "Overdue", value: overdue, icon: AlertTriangle, tone: "#DC2626", note: overdue ? "Perlu ditindaklanjuti" : "Tidak ada overdue" },
-        ].map((k) => {
-          const Icon = k.icon;
-          return (
-            <div key={k.label} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between">
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${k.tone}14`, color: k.tone }}><Icon size={18} /></span>
-                <ArrowUpRight size={15} className="text-slate-300" />
-              </div>
-              <div className="text-2xl font-extrabold text-slate-900 mt-3">{k.value}</div>
-              <div className="text-xs font-bold text-slate-600 mt-0.5">{k.label}</div>
-              <div className="text-[10px] text-slate-400 mt-1">{k.note}</div>
-            </div>
-          );
-        })}
+      {/* KPI summary */}
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <StatCard label="Total Jadwal Hari Ini" value={totalToday} color="#4F46E5" note={`${members.length} anggota terdaftar`} icon={CalendarIcon} />
+        <StatCard label="Kegiatan Selesai" value={doneToday} color="#059669" note={`${completion}% dari jadwal hari ini`} icon={CheckCircle2} />
+        <StatCard label="Menunggu Report WA" value={pendingReport} color="#DB2777" note="Perlu follow-up" icon={MessageCircle} />
+        <StatCard label="Overdue" value={overdue} color="#DC2626" note={overdue ? "Perlu ditindaklanjuti" : "Tidak ada overdue"} icon={AlertTriangle} />
       </section>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Agenda */}
-        <section className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold text-slate-900">Agenda Hari Ini</h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Urutan aktivitas berdasarkan jam dan status aktual.</p>
-            </div>
-            <button onClick={() => onOpenActivity(todays[0]?.id)} disabled={!todays[0]} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:text-slate-300">Lihat detail →</button>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Schedule board */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <div><h3 className="font-black text-slate-900">Jadwal Tim</h3><p className="mt-0.5 text-[10px] text-slate-400">Agenda hari ini berdasarkan jam dan status aktual.</p></div>
+            <span className="rounded-lg bg-indigo-50 px-3 py-1.5 text-[10px] font-black text-indigo-700">{totalToday} kegiatan</span>
           </div>
-          <div className="p-4 sm:p-5">
-            {todays.length === 0 ? (
-              <div className="py-12 text-center text-sm text-slate-400">Belum ada kegiatan terjadwal hari ini.</div>
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                {todays.slice(0, 7).map((a) => {
-                  const m = memberOf(a.assignedMemberId);
-                  const meta = STATUS_META[a._status];
-                  const pct = progressOf(a._status);
-                  return (
-                    <button key={a.id} onClick={() => onOpenActivity(a.id)} className="w-full text-left group rounded-xl border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 p-3 transition">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 text-center shrink-0">
-                          <div className="text-xs font-extrabold text-slate-700">{a.time || "--:--"}</div>
-                          <div className="text-[9px] text-slate-400">WIB</div>
-                        </div>
-                        <div className="w-px h-9 bg-slate-200" />
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: memberColor(a.assignedMemberId) }} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-slate-800 truncate">{a.title}</span>
-                            {a.photos?.length > 0 && <Camera size={12} className="text-slate-400 shrink-0" />}
-                          </div>
-                          <div className="text-[11px] text-slate-400 truncate mt-0.5">{m?.name || "Tanpa PIC"} · {normalizeJenisKegiatan(a.jenisKegiatan)}</div>
-                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-2 max-w-[360px]"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: meta.color }} /></div>
-                        </div>
-                        <span className="hidden sm:inline-flex text-[10px] font-bold px-2 py-1 rounded-full shrink-0" style={{ color: meta.color, background: meta.bg }}>{meta.label}</span>
-                      </div>
-                    </button>
-                  );
+          <div className="p-4">
+            {todays.length === 0 ? <div className="py-14 text-center text-sm text-slate-400">Belum ada kegiatan terjadwal hari ini.</div> : (
+              <div className="space-y-2">
+                {todays.slice(0, 8).map((a) => {
+                  const m = memberOf(a.assignedMemberId); const meta = STATUS_META[a._status]; const progress = progressOf(a._status);
+                  return <button key={a.id} onClick={() => onOpenActivity(a.id)} className="group flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/30 hover:shadow-sm">
+                    <div className="w-12 shrink-0 text-center"><div className="text-xs font-black text-slate-700">{a.time || "--:--"}</div><div className="text-[9px] text-slate-400">WIB</div></div>
+                    <div className="h-9 w-px bg-slate-200" />
+                    <span className="h-8 w-8 shrink-0 rounded-full text-center text-[10px] font-black leading-8 text-white" style={{ background: memberColor(a.assignedMemberId) }}>{(m?.name || "?").slice(0,1).toUpperCase()}</span>
+                    <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-xs font-black text-slate-800">{a.title}</span>{a.photos?.length > 0 && <Camera size={12} className="shrink-0 text-slate-400" />}</div><div className="mt-0.5 truncate text-[10px] text-slate-400">{m?.name || "Tanpa PIC"} · {normalizeJenisKegiatan(a.jenisKegiatan)}</div><div className="mt-2 h-1.5 max-w-[420px] overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${progress}%`, background: meta.color }} /></div></div>
+                    <span className="hidden shrink-0 rounded-full px-2 py-1 text-[9px] font-black sm:inline-flex" style={{ color: meta.color, background: meta.bg }}>{meta.label}</span>
+                    <ArrowUpRight size={14} className="shrink-0 text-slate-300 transition group-hover:text-indigo-500" />
+                  </button>;
                 })}
               </div>
             )}
           </div>
         </section>
 
-        {/* Automation */}
-        <section className="bg-slate-950 rounded-2xl p-5 text-white shadow-sm overflow-hidden relative">
-          <div className="absolute -right-10 -top-10 w-36 h-36 rounded-full bg-indigo-500/20" />
-          <div className="relative">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2"><Zap size={17} className="text-amber-300" /><h3 className="font-bold">Automation Center</h3></div>
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-400/10 text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300" /> Active</span>
+        {/* Right rail, matching the mockup's stacked insight cards. */}
+        <div className="space-y-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
+            <div className="flex items-center justify-between"><div><h3 className="font-black text-slate-900">Ringkasan Kegiatan</h3><p className="text-[10px] text-slate-400">Distribusi kegiatan hari ini</p></div><BarChart2 size={18} className="text-indigo-500" /></div>
+            <div className="mt-4 flex items-center gap-4">
+              <div className="relative h-28 w-28 shrink-0 rounded-full" style={{ background: categoryTotal ? `conic-gradient(${donutStops})` : "#E2E8F0" }}><div className="absolute inset-[18px] flex flex-col items-center justify-center rounded-full bg-white"><span className="text-xl font-black text-slate-900">{totalToday}</span><span className="text-[8px] font-semibold text-slate-400">Total Kegiatan</span></div></div>
+              <div className="min-w-0 flex-1 space-y-2">{categoryStats.slice(0, 6).map((x, i) => <div key={x.label} className="flex items-center justify-between gap-2 text-[10px]"><span className="flex min-w-0 items-center gap-2 text-slate-600"><span className="h-2 w-2 shrink-0 rounded-full" style={{ background: CHIP_PALETTE[i % CHIP_PALETTE.length] }} /> <span className="truncate">{x.label}</span></span><b className="text-slate-800">{x.total}</b></div>)}</div>
             </div>
-            <p className="text-xs text-slate-400 mt-1">Alur operasional yang terhubung ke reminder dan report WhatsApp.</p>
-            <div className="grid grid-cols-2 gap-2 mt-5">
-              <div className="rounded-xl bg-white/5 border border-white/10 p-3"><Wifi size={15} className="text-emerald-300" /><div className="text-xs font-bold mt-2">WA Gateway</div><div className="text-[10px] text-slate-500 mt-0.5">Connected</div></div>
-              <div className="rounded-xl bg-white/5 border border-white/10 p-3"><Zap size={15} className="text-violet-300" /><div className="text-xs font-bold mt-2">n8n Flow</div><div className="text-[10px] text-slate-500 mt-0.5">Automation</div></div>
-            </div>
-            <div className="mt-3 rounded-xl bg-white/5 border border-white/10 p-3">
-              <div className="flex items-center justify-between text-xs"><span className="text-slate-400">Report pending</span><b className="text-white">{pendingReport}</b></div>
-              <div className="h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full rounded-full bg-pink-400" style={{ width: `${totalToday ? Math.min(100, (pendingReport / totalToday) * 100) : 0}%` }} /></div>
-            </div>
-          </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
+            <div className="flex items-center justify-between"><div><h3 className="font-black text-slate-900">Pencapaian Hari Ini</h3><p className="text-[10px] text-slate-400">Execution terhadap jadwal</p></div><span className="text-xs font-black text-emerald-600">{completion}%</span></div>
+            <div className="mt-4 flex items-center gap-4"><div className="relative h-20 w-20 shrink-0 rounded-full" style={{ background: `conic-gradient(#0EA5A4 0 ${completion}%, #E2E8F0 ${completion}% 100%)` }}><div className="absolute inset-2 flex items-center justify-center rounded-full bg-white"><span className="text-lg font-black text-slate-800">{completion}%</span></div></div><div className="flex-1"><div className="flex items-center justify-between text-[10px] font-bold text-slate-500"><span>Selesai</span><b className="text-slate-800">{doneToday} / {totalToday}</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-500" style={{ width: `${completion}%` }} /></div><div className="mt-2 text-[9px] text-slate-400">Bulan berjalan: {monthRate}%</div></div></div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
+            <div className="flex items-center justify-between mb-3"><div><h3 className="font-black text-slate-900">Pengiriman Report WA</h3><p className="text-[10px] text-slate-400">{pendingReport} masih menunggu</p></div><MessageCircle size={18} className="text-emerald-500" /></div>
+            {pendingRows.length === 0 ? <div className="rounded-xl bg-emerald-50 p-3 text-[10px] font-semibold text-emerald-700">Semua report hari ini sudah diterima.</div> : <div className="space-y-2">{pendingRows.map((a) => { const m = memberOf(a.assignedMemberId); return <button key={a.id} onClick={() => onOpenActivity(a.id)} className="flex w-full items-center gap-2 rounded-xl p-2 text-left hover:bg-slate-50"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[9px] font-black text-slate-600">{(m?.name || "?").slice(0,1)}</span><span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-bold text-slate-700">{m?.name || "Tanpa PIC"}</span><span className="block truncate text-[9px] text-slate-400">{a.title}</span></span><span className="rounded-full bg-amber-50 px-2 py-1 text-[8px] font-black text-amber-600">Menunggu</span></button>; })}</div>}
+          </section>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <section className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
+          <div className="mb-4 flex items-center justify-between"><div><h3 className="font-black text-slate-900">Aktivitas Terbaru</h3><p className="text-[10px] text-slate-400">Perubahan kegiatan terbaru dari Firestore.</p></div><Clock size={17} className="text-slate-300" /></div>
+          <div className="divide-y divide-slate-100">{recent.map((a) => { const m = memberOf(a.assignedMemberId); const meta = STATUS_META[a._status]; return <button key={a.id} onClick={() => onOpenActivity(a.id)} className="flex w-full items-center gap-3 py-3 text-left hover:bg-slate-50"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: meta.bg, color: meta.color }}>{a._status === "selesai" ? <CheckCircle2 size={15} /> : <Clock size={15} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-700">{a.title}</span><span className="mt-0.5 block truncate text-[9px] text-slate-400">{m?.name || "Tanpa PIC"} · {a.date}{a.time ? ` · ${a.time}` : ""}</span></span><span className="text-[9px] font-black" style={{ color: meta.color }}>{meta.label}</span><ArrowUpRight size={13} className="text-slate-300" /></button>; })}</div>
+        </section>
+
+        <section className="rounded-2xl bg-[#07152F] p-5 text-white shadow-[0_12px_30px_rgba(15,23,42,0.12)]">
+          <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Zap size={16} className="text-amber-300" /><h3 className="font-black">Automation Center</h3></div><span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[9px] font-black text-emerald-300">Active</span></div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Reminder dan report WhatsApp berjalan menggunakan data kegiatan yang sama.</p>
+          <div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl border border-white/10 bg-white/5 p-3"><Wifi size={15} className="text-emerald-300" /><div className="mt-2 text-[10px] font-black">WA Gateway</div><div className="mt-0.5 text-[9px] text-slate-500">Connected</div></div><div className="rounded-xl border border-white/10 bg-white/5 p-3"><Zap size={15} className="text-violet-300" /><div className="mt-2 text-[10px] font-black">n8n Flow</div><div className="mt-0.5 text-[9px] text-slate-500">Automation</div></div></div>
+          <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3"><div className="flex items-center justify-between text-[10px]"><span className="text-slate-400">Report pending</span><b>{pendingReport}</b></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-pink-400" style={{ width: `${totalToday ? Math.min(100, (pendingReport / totalToday) * 100) : 0}%` }} /></div></div>
         </section>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Team progress */}
-        <section className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4"><div><h3 className="font-bold text-slate-900">Progress Tim</h3><p className="text-[11px] text-slate-400">6 anggota teratas berdasarkan eksekusi bulan ini.</p></div><Users size={18} className="text-slate-300" /></div>
-          {teamStats.length === 0 ? <p className="text-sm text-slate-400 italic">Belum ada data kegiatan bulan ini.</p> : <div className="grid sm:grid-cols-2 gap-x-5 gap-y-4">
-            {teamStats.map((t) => <div key={t.member.id}>
-              <div className="flex items-center justify-between text-xs mb-1.5"><span className="font-bold text-slate-700 truncate pr-2">{t.member.name}</span><span className="font-extrabold text-slate-500">{t.pct}%</span></div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${t.pct}%`, background: memberColor(t.member.id) }} /></div>
-              <div className="text-[10px] text-slate-400 mt-1">{t.done}/{t.total} kegiatan selesai · {t.member.branch || "Branch belum diisi"}</div>
-            </div>)}
-          </div>}
-        </section>
-
-        {/* Distribution */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Distribusi Kegiatan</h3><p className="text-[11px] text-slate-400">Hari ini berdasarkan kategori.</p></div><BarChart2 size={18} className="text-slate-300" /></div>
-          <div className="flex items-center gap-5 mt-5">
-            <div className="relative w-28 h-28 shrink-0 rounded-full" style={{ background: categoryStats.length ? `conic-gradient(#4F46E5 0 ${categoryStats.reduce((s,x)=>s+x.total,0) ? (categoryStats[0].total / totalToday) * 360 : 0}deg, #E2E8F0 0)` : "#F1F5F9" }}>
-              <div className="absolute inset-4 bg-white rounded-full flex flex-col items-center justify-center"><span className="text-xl font-extrabold text-slate-900">{totalToday}</span><span className="text-[9px] text-slate-400">kegiatan</span></div>
-            </div>
-            <div className="flex-1 flex flex-col gap-2">
-              {categoryStats.slice(0, 5).map((x, i) => <div key={x.label} className="flex items-center justify-between text-xs"><span className="flex items-center gap-2 text-slate-600"><span className="w-2 h-2 rounded-full" style={{ background: CHIP_PALETTE[i % CHIP_PALETTE.length] }} />{x.label}</span><b className="text-slate-800">{x.total}</b></div>)}
-              {topCategory && <div className="pt-2 mt-1 border-t border-slate-100 text-[10px] text-slate-400">Terbanyak: <b className="text-slate-600">{topCategory.label}</b></div>}
-            </div>
-          </div>
-        </section>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <section className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.04)]"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-black text-slate-900">Progress Tim</h3><p className="text-[10px] text-slate-400">Anggota dengan aktivitas pada bulan berjalan.</p></div><Users size={17} className="text-slate-300" /></div>{teamStats.length === 0 ? <p className="text-sm text-slate-400 italic">Belum ada data kegiatan bulan ini.</p> : <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">{teamStats.map((t) => <div key={t.member.id}><div className="mb-1.5 flex items-center justify-between text-[10px]"><span className="truncate pr-2 font-bold text-slate-700">{t.member.name}</span><span className="font-black text-slate-500">{t.pct}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${t.pct}%`, background: memberColor(t.member.id) }} /></div><div className="mt-1 text-[9px] text-slate-400">{t.done}/{t.total} selesai · {t.member.branch || "Branch belum diisi"}</div></div>)}</div>}</section>
+        <section className="overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.04)]"><div className="border-b border-rose-100 bg-rose-50/60 px-5 py-4"><div className="flex items-center gap-2"><AlertTriangle size={16} className="text-rose-600" /><div><h3 className="text-sm font-black text-rose-700">Perlu Perhatian</h3><p className="text-[9px] text-rose-500">Overdue dan report yang belum diterima.</p></div></div></div>{attention.length === 0 ? <div className="p-5 text-xs text-emerald-600">Tidak ada item yang perlu perhatian.</div> : <div className="divide-y divide-slate-100">{attention.map((a) => { const m = memberOf(a.assignedMemberId); const meta = STATUS_META[a._status]; return <button key={a.id} onClick={() => onOpenActivity(a.id)} className="flex w-full items-center gap-2.5 px-4 py-3 text-left hover:bg-slate-50"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: meta.bg, color: meta.color }}>{a._status === "overdue" ? <Clock size={14} /> : <MessageCircle size={14} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-bold text-slate-700">{a.title}</span><span className="block truncate text-[9px] text-slate-400">{m?.name || "Tanpa PIC"} · {a.date}</span></span><span className="text-[9px] font-black" style={{ color: meta.color }}>{meta.label}</span></button>; })}</div>}</section>
       </div>
-
-      {/* Attention */}
-      {attention.length > 0 && <section className="bg-white rounded-2xl border border-rose-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 bg-rose-50/50 border-b border-rose-100 flex items-center gap-2"><AlertTriangle size={16} className="text-rose-600" /><div><h3 className="font-bold text-sm text-rose-700">Perlu Perhatian</h3><p className="text-[10px] text-rose-500">Overdue dan report yang belum diterima.</p></div></div>
-        <div className="divide-y divide-slate-100">{attention.map((a) => { const m = memberOf(a.assignedMemberId); const meta = STATUS_META[a._status]; return <button key={a.id} onClick={() => onOpenActivity(a.id)} className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition"><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: meta.bg, color: meta.color }}>{a._status === "overdue" ? <Clock size={15} /> : <MessageCircle size={15} />}</span><span className="min-w-0 flex-1"><span className="block text-xs font-bold text-slate-700 truncate">{a.title}</span><span className="block text-[10px] text-slate-400 truncate">{m?.name || "Tanpa PIC"} · {a.date}{a.time ? ` · ${a.time}` : ""}</span></span><span className="text-[10px] font-bold shrink-0" style={{ color: meta.color }}>{meta.label}</span><ArrowUpRight size={14} className="text-slate-300" /></button>; })}</div>
-      </section>}
     </div>
   );
 }
