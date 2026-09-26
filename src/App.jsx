@@ -595,6 +595,15 @@ export default function PapanKegiatan() {
 
   return (
     <div className="min-h-screen flex" style={{ background: COLORS.bg }}>
+      {/* Override paksa style bawaan template (mis. Vite/CRA: #root { max-width, margin:auto, padding }
+          dan body { background: ... }) yang bikin app ini kelihatan "mengambang" di tengah dengan
+          border coklat, dan bikin tinggi #root tidak penuh 1 layar (sidebar jadi ke-squeeze/kepotong).
+          Ditulis di sini (bukan minta user edit index.css) supaya selalu menang dan tidak tergantung
+          file lain di project. Aman -- tidak mengubah fungsi apa pun, murni reset layout. */}
+      <style>{`
+        html, body { margin: 0; padding: 0; height: 100%; background: ${COLORS.bg}; }
+        #root { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; text-align: left !important; min-height: 100vh; }
+      `}</style>
       {/* Sidebar — desktop */}
       <aside className="hidden lg:block w-[260px] shrink-0 sticky top-0 h-screen">{SidebarContent}</aside>
 
