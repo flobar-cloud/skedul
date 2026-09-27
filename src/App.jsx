@@ -589,7 +589,7 @@ export default function PapanKegiatan() {
   const [detailId, setDetailId] = useState(null);
   const [showMembers, setShowMembers] = useState(false);
   const [showSim, setShowSim] = useState(false);
-  const [showAddActivity, setShowAddActivity] = useState(false);
+  const [showAddActivity, setShowAddActivity] = useState(null);
   const [showMigrasi, setShowMigrasi] = useState(false);
   const [toast, setToast] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -821,7 +821,7 @@ export default function PapanKegiatan() {
         notifCount={notifCount}
         mobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
-        onAddActivity={() => setShowAddActivity(todayKey())}
+        onAddActivity={() => setShowAddActivity({ date: todayKey() })}
         onImportExcel={triggerImportExcel}
         onKirimReportWA={() => setShowSim(true)}
       />
@@ -843,7 +843,7 @@ export default function PapanKegiatan() {
               activities={activities} members={members} rgeReports={rgeReports} kpiTargets={kpiTargets}
               weekCursor={weekCursor} setWeekCursor={setWeekCursor}
               onOpenActivity={(id) => setDetailId(id)}
-              onAddActivity={(date) => setShowAddActivity(date)}
+              onAddActivity={(date, memberId) => setShowAddActivity({ date, memberId })}
               onGoFullSchedule={() => { setMainTab("kalender"); setPlannerView("weekly"); }}
             />
           )}
@@ -886,9 +886,9 @@ export default function PapanKegiatan() {
 
           {mainTab === "kalender" && (
             plannerView === "weekly" ? (
-              <WeeklyPlanner activities={activities} members={members} rgeReports={rgeReports} weekCursor={weekCursor} setWeekCursor={setWeekCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
+              <WeeklyPlanner activities={activities} members={members} rgeReports={rgeReports} weekCursor={weekCursor} setWeekCursor={setWeekCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date, memberId) => setShowAddActivity({ date, memberId })} onViewChange={setPlannerView} />
             ) : (
-              <MonthlyPlanner activities={activities} members={members} cursor={cursor} setCursor={setCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
+              <MonthlyPlanner activities={activities} members={members} cursor={cursor} setCursor={setCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date, memberId) => setShowAddActivity({ date, memberId })} onViewChange={setPlannerView} />
             )
           )}
 
@@ -934,17 +934,18 @@ export default function PapanKegiatan() {
                 </div>
               );
             })}
-            <PrimaryBtn onClick={() => { setShowAddActivity(dayModal); setDayModal(null); }}><Plus size={15} /> Tambah kegiatan</PrimaryBtn>
+            <PrimaryBtn onClick={() => { setShowAddActivity({ date: dayModal }); setDayModal(null); }}><Plus size={15} /> Tambah kegiatan</PrimaryBtn>
           </div>
         </Modal>
       )}
 
       {showAddActivity && (
         <AddActivityModal
-          initialDate={showAddActivity}
+          initialDate={showAddActivity.date}
+          initialMemberId={showAddActivity.memberId}
           members={members}
-          onClose={() => setShowAddActivity(false)}
-          onSave={(a) => { addActivity({ ...a, status: "rencana", createdVia: "web" }); setShowAddActivity(false); notify("Kegiatan ditambahkan ke kalender."); }}
+          onClose={() => setShowAddActivity(null)}
+          onSave={(a) => { addActivity({ ...a, status: "rencana", createdVia: "web" }); setShowAddActivity(null); notify("Kegiatan ditambahkan ke kalender."); }}
         />
       )}
 
@@ -1026,7 +1027,7 @@ function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCur
     <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden"><div className="px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/70"><div><div className="font-extrabold text-slate-900">{monthLabel}</div><div className="text-[10px] text-slate-400 font-semibold">{weekKeys[0]} — {weekKeys[6]}</div></div><div className="flex items-center gap-3 text-[10px] font-bold text-slate-400"><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-500"/> Berjalan</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-rose-500"/> Perhatian</span></div></div>
       <div className="overflow-x-auto"><div className="min-w-[1180px]"><div className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-200 bg-white sticky top-0 z-10"><div className="p-3 text-[10px] font-black uppercase tracking-wider text-slate-400">Anggota Tim</div>{days.map((d,i)=>{const key=weekKeys[i];const isToday=key===today;const count=weekActivities.filter(a=>a.date===key).length;return <div key={key} className={`p-2.5 border-l border-slate-100 ${isToday?"bg-indigo-50":""}`}><div className={`text-[10px] font-black uppercase ${isToday?"text-indigo-600":"text-slate-400"}`}>{HARI[i]}</div><div className={`text-base font-black ${isToday?"text-indigo-700":"text-slate-800"}`}>{d.getDate()}</div><div className="text-[9px] text-slate-400">{count} kegiatan</div></div>})}</div>
-      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key)} className="w-full h-7 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center justify-center"><Plus size={13}/></button></div>})}</div>)}
+      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key,m.id)} className="w-full h-7 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center justify-center"><Plus size={13}/></button></div>})}</div>)}
       {visibleMembers.length===0&&<div className="p-10 text-center text-sm text-slate-400">Belum ada anggota tim.</div>}</div></div></div>
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className="flex items-center justify-between mb-3"><div><h3 className="font-extrabold text-sm text-slate-900">Status operasional minggu ini</h3><p className="text-[10px] text-slate-400">Progress dihitung dari status kegiatan yang sudah ada.</p></div><span className="text-lg font-black text-indigo-600">{completion}%</span></div><div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" style={{width:`${completion}%`}}/></div></div><div className="bg-slate-900 rounded-2xl p-4 shadow-sm text-white"><div className="flex items-center gap-2 mb-2"><Zap size={15} className="text-amber-300"/><h3 className="font-extrabold text-sm">Automation Ready</h3></div><p className="text-[10px] text-slate-300 leading-relaxed">Planner membaca status kegiatan yang sama dengan alur reminder dan report WhatsApp. Tidak ada field Firestore baru yang diperlukan.</p><div className="flex gap-2 mt-3"><span className="px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 text-[9px] font-bold">WA Gateway</span><span className="px-2 py-1 rounded-lg bg-violet-500/15 text-violet-300 text-[9px] font-bold">n8n</span></div></div></div>
   </div>;
@@ -1124,13 +1125,13 @@ function ResumeAnggota({ members, activities, cursor }) {
 }
 
 // ---------- Add Activity Modal ----------
-function AddActivityModal({ initialDate, members, onClose, onSave }) {
+function AddActivityModal({ initialDate, initialMemberId, members, onClose, onSave }) {
   const [date, setDate] = useState(initialDate || todayKey());
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
   const [description, setDescription] = useState("");
   const [jenisKegiatan, setJenisKegiatan] = useState("");
-  const [assignedMemberId, setAssignedMemberId] = useState(members[0]?.id || "");
+  const [assignedMemberId, setAssignedMemberId] = useState(initialMemberId || members[0]?.id || "");
   return (
     <Modal onClose={onClose} width={420}>
       <ModalHeader title="Tambah Kegiatan" onClose={onClose} icon={<Plus size={18} />} />
@@ -2426,11 +2427,11 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
                   return (
                     <button
                       key={key}
-                      onClick={() => dayActs.length ? onOpenActivity(dayActs[0].id) : onAddActivity(key)}
+                      onClick={() => dayActs.length ? onOpenActivity(dayActs[0].id) : onAddActivity(key, m.id)}
                       className={`text-left border-l border-slate-50 p-1 min-h-[40px] hover:bg-indigo-50/30 transition ${isToday ? "bg-indigo-50/30" : ""}`}
                     >
                       {dayActs.length === 0 ? (
-                        <span className="text-[9px] text-slate-300 italic">Free</span>
+                        <span className="text-[9px] text-slate-500 italic">Free</span>
                       ) : (
                         <div className="flex flex-col gap-0.5">
                           {dayActs.slice(0, 1).map((a) => {
@@ -2560,7 +2561,7 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
         {/* Stat cards */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: "Total Jadwal Hari Ini", value: totalToday, icon: CalendarIcon, tone: "#4F46E5", note: `dari ${members.length} anggota tim`, up: true },
+            { label: "Total Jadwal Hari Ini", value: totalToday, icon: CalendarIcon, tone: "#4F46E5", note: `dari ${rgeMembersAll.length} anggota tim`, up: true },
             { label: "Kegiatan Selesai", value: doneToday, icon: CheckCircle2, tone: "#059669", note: `dari ${totalToday} jadwal`, pctNote: `${completion}%`, up: completion >= 50 },
             { label: "Menunggu Report WA", value: pendingReport, icon: Clock, tone: "#DC2626", note: "belum mengirim", pctNote: totalToday ? `${Math.round((pendingReport / totalToday) * 100)}%` : "0%", up: false },
             { label: "Pencapaian KPI", value: `${kpiNow.overall}%`, icon: Award, tone: "#D97706", note: "bulan ini", pctNote: `${kpiDelta >= 0 ? "+" : ""}${kpiDelta}%`, up: kpiDelta >= 0 },
