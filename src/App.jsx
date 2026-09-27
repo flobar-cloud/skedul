@@ -597,6 +597,24 @@ export default function PapanKegiatan() {
 
   function notify(msg) { setToast(msg); setTimeout(() => setToast(null), 2600); }
 
+  // Vite's default template ships `#root { max-width:1280px; margin:0 auto; padding:2rem;
+  // text-align:center }` in index.css. Kalau itu masih ada di project ini, layout sidebar+header
+  // di atas jadi "terjepit" di tengah viewport (muncul background kosong di kiri-kanan, dan semua
+  // elemen ikut terlihat lebih besar/renggang dari proporsi aslinya). Kita netralkan di sini supaya
+  // app ini selalu full-bleed apa pun isi index.css-nya -- idealnya baris itu juga dihapus manual
+  // dari index.css, tapi ini jaga-jaga.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.setAttribute("data-team-planner-reset", "true");
+    style.textContent = `
+      html, body { margin: 0; padding: 0; width: 100%; }
+      #root { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; text-align: left !important; }
+    `;
+    document.head.appendChild(style);
+    return () => style.remove();
+  }, []);
+
+
   useEffect(() => {
     const unsubMembers = onSnapshot(
       collection(db, "members"),
@@ -784,7 +802,7 @@ export default function PapanKegiatan() {
   }
 
   return (
-    <div className="min-h-screen flex" style={{ background: COLORS.bg }}>
+    <div className="min-h-screen w-full flex" style={{ background: COLORS.bg }}>
       <input ref={importInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcelFile} />
 
       <SidebarNav
