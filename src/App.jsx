@@ -377,17 +377,17 @@ function SidebarNav({ mainTab, plannerView, onNavigate, notifCount, mobileOpen, 
   return (
     <>
       {mobileOpen && <div onClick={onCloseMobile} className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden" />}
-      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-[260px] shrink-0 z-50 flex flex-col text-white transition-transform duration-200 ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`} style={{ background: "linear-gradient(180deg,#0B1120 0%,#0F172A 100%)" }}>
-        <div className="px-5 pt-5 pb-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#7C3AED)" }}><LayoutDashboard size={19} /></div>
+      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-[250px] shrink-0 z-50 flex flex-col text-white transition-transform duration-200 overflow-hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`} style={{ background: "linear-gradient(180deg,#0B1120 0%,#0F172A 100%)" }}>
+        <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 shrink-0">
+          <div className="w-9 h-9 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#7C3AED)" }}><LayoutDashboard size={17} /></div>
           <div className="min-w-0">
-            <div className="font-extrabold tracking-tight truncate">Team Planner</div>
-            <div className="text-[9px] text-slate-400 font-semibold tracking-widest">PLAN · EXECUTE · ACHIEVE</div>
+            <div className="font-extrabold tracking-tight truncate text-[15px]">Team Planner</div>
+            <div className="text-[8.5px] text-slate-400 font-semibold tracking-widest">PLAN · EXECUTE · ACHIEVE</div>
           </div>
           <button onClick={onCloseMobile} className="ml-auto p-1.5 rounded-lg hover:bg-white/10 lg:hidden"><X size={16} /></button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-1">
+        <nav className="px-3 flex flex-col gap-0.5 shrink-0">
           {NAV_ITEMS.map((item) => {
             const active = isActive(item);
             const Icon = item.icon;
@@ -395,36 +395,37 @@ function SidebarNav({ mainTab, plannerView, onNavigate, notifCount, mobileOpen, 
               <button
                 key={item.label}
                 onClick={() => { onNavigate(item.key, item.plannerView); onCloseMobile(); }}
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition text-left ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white hover:bg-white/5"}`}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-semibold transition text-left ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white hover:bg-white/5"}`}
               >
-                <Icon size={17} className="shrink-0" />
+                <Icon size={16} className="shrink-0" />
                 <span className="flex-1 truncate">{item.label}</span>
                 {item.key === "notifikasi" && notifCount > 0 && (
-                  <span className="text-[10px] font-bold bg-rose-500 text-white rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{notifCount}</span>
+                  <span className="text-[9px] font-bold bg-rose-500 text-white rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1">{notifCount}</span>
                 )}
               </button>
             );
           })}
         </nav>
 
-        <div className="px-3 pb-3">
-          <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#064E3B,#065F46)" }}>
-            <div className="absolute -right-6 -top-8 w-24 h-24 rounded-full bg-white/10" />
-            <div className="relative">
-              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center mb-2"><MessageCircle size={17} /></div>
-              <div className="font-bold text-sm">Otomasi Aktif</div>
-              <p className="text-[11px] text-emerald-100/80 mt-1 leading-snug">Reminder ke team & Report via WA dengan n8n + Waha</p>
-              <button onClick={() => onNavigate("pengaturan")} className="mt-3 w-full text-center text-xs font-bold bg-white text-emerald-700 rounded-lg py-1.5 hover:bg-emerald-50 transition">Lihat Detail →</button>
-            </div>
-          </div>
+        <div className="flex-1 min-h-[10px]" />
+
+        <div className="px-3 pb-2.5 shrink-0">
+          <button onClick={() => onNavigate("pengaturan")} className="w-full rounded-2xl px-3 py-2.5 flex items-center gap-2.5 text-left relative overflow-hidden" style={{ background: "linear-gradient(135deg,#064E3B,#065F46)" }}>
+            <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><MessageCircle size={15} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-bold text-[12px] leading-tight">Otomasi Aktif</span>
+              <span className="block text-[9.5px] text-emerald-100/80 truncate">Reminder & Report via WA</span>
+            </span>
+            <ArrowUpRight size={15} className="text-white/80 shrink-0" />
+          </button>
         </div>
 
-        <div className="px-3 pb-5">
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2 mb-2">Quick Action</div>
+        <div className="px-3 pb-4 shrink-0">
+          <div className="text-[9px] font-black uppercase tracking-widest text-slate-500 px-2 mb-1.5">Quick Action</div>
           <div className="flex flex-col gap-1.5">
-            <button onClick={onAddActivity} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"><Plus size={14} /> Tambah Jadwal</button>
-            <button onClick={onImportExcel} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"><FileUp size={14} /> Import Excel</button>
-            <button onClick={onKirimReportWA} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-white transition" style={{ background: "#25D366" }}><Send size={14} /> Kirim Report WA</button>
+            <button onClick={onAddActivity} className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"><Plus size={13} /> Tambah Jadwal</button>
+            <button onClick={onImportExcel} className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"><FileUp size={13} /> Import Excel</button>
+            <button onClick={onKirimReportWA} className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white transition" style={{ background: "#25D366" }}><Send size={13} /> Kirim Report WA</button>
           </div>
         </div>
       </aside>
@@ -607,8 +608,8 @@ export default function PapanKegiatan() {
     const style = document.createElement("style");
     style.setAttribute("data-team-planner-reset", "true");
     style.textContent = `
-      html, body { margin: 0; padding: 0; width: 100%; }
-      #root { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; text-align: left !important; }
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: ${COLORS.bg}; }
+      #root { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; text-align: left !important; min-height: 100vh; }
     `;
     document.head.appendChild(style);
     return () => style.remove();
