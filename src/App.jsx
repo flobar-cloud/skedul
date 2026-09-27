@@ -122,6 +122,11 @@ function kategoriHasil(jenisKegiatanRaw) {
 }
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+// rgeReports ditulis n8n TIDAK punya field memberId -- yang ada cuma "Sender" (nomor WA pengirim).
+// memberId di app ini = Firestore doc id member = nomor WA juga, jadi cocokkan by nomor yang sudah
+// dibuang karakter non-digit-nya (supaya "+62..." vs "62..." vs "0..." tetap ketemu).
+function digitsOnly(v) { return String(v ?? "").replace(/\D/g, ""); }
+function reportSenderDigits(r) { return digitsOnly(r?.Sender ?? r?.sender ?? r?.phone ?? r?.Phone ?? ""); }
 function dateKey(y, m, d) { return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
 function todayKey() { const t = new Date(); return dateKey(t.getFullYear(), t.getMonth(), t.getDate()); }
 function posisiColor(posisi) {
@@ -166,29 +171,23 @@ function statusOf(activity, now = new Date()) {
   return "menunggu_report";
 }
 function reportInfoForActivity(activity, member, rgeReports = []) {
-  const categoryMap = {
-    branding: "posm", posm: "posm",
-    event: "event",
-    dtu: "dtu",
-    "attack desa": "desa", desa: "desa",
-    "attack school": "school", school: "school",
-    fwa: "fwa",
-    nota: "nota",
-  };
+  const categoryMap = { branding: "posm", posm: "posm", event: "event", dtu: "dtu", "attack desa": "desa", desa: "desa", "attack school": "school", school: "school", fwa: "fwa", nota: "nota" };
   const wanted = categoryMap[String(activity?.jenisKegiatan || "").toLowerCase()];
-  const memberDigits = String(member?.phone ?? activity?.assignedMemberId ?? "").replace(/\D/g, "");
+  const memberId = activity?.assignedMemberId;
 
-  // Prioritas utama: n8n ("Cocokkan Laporan RGE ke Kegiatan") menyimpan ActivityId eksplisit di
-  // rgeReports kalau berhasil dicocokkan (hanya kalau kandidatnya tunggal/tidak ambigu).
-  const directRows = rgeReports.filter((r) => String(r.ActivityId || r.activityId || "") === String(activity?.id || "") && String(activity?.id || ""));
+  // Prioritas baru: n8n menyimpan hubungan eksplisit activityId pada rgeReports.
+  // Ini menghilangkan ambiguitas ketika satu RGE punya beberapa kegiatan pada tanggal/kategori yang sama.
+  const directRows = rgeReports.filter((r) => String(r.activityId || r.ActivityId || "") === String(activity?.id || ""));
 
-  // Fallback: laporan yang BELUM ke-link explicit oleh n8n (ActivityId kosong) dicocokkan manual
-  // via nomor WA (Sender) + kategori + tanggal.
+  // Fallback legacy: tetap mendukung laporan lama yang belum memiliki activityId. rgeReports TIDAK
+  // punya field memberId -- cocokkan by nomor WA (Sender) ke member.phone / assignedMemberId, dua-duanya
+  // dinormalkan ke digit saja dulu.
+  const memberDigits = digitsOnly(member?.phone ?? memberId ?? "");
   const rows = directRows.length > 0 ? directRows : rgeReports.filter((r) => {
-    const cat = String(r.Kategori || r.category || "").toLowerCase();
+    const cat = String(r.category || r.Kategori || "").toLowerCase();
     const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
     const date = ts.slice(0, 10);
-    const senderDigits = String(r.Sender ?? r.sender ?? r.phone ?? "").replace(/\D/g, "");
+    const senderDigits = reportSenderDigits(r);
     const memberMatch = !memberDigits || (senderDigits && senderDigits === memberDigits);
     const categoryMatch = !wanted || !cat || cat === wanted;
     const dateMatch = !activity?.date || !date || date === activity.date;
@@ -1998,6 +1997,9 @@ const KATEGORI_LABEL = {
   posm: "Branding", event: "Event", dtu: "DTU", desa: "Desa",
   school: "School", fwa: "FWA", nota: "Nota",
 };
+// Field di sini PERSIS mengikuti header yang ditulis n8n ke Sheets/Firestore (PascalCase):
+// Kategori, NamaEvent, NamaLokasi, NamaDesa, SiteId, NamaSekolah, SP_IM3, SP_3ID, FWA, Msisdn,
+// Imei, Nominal, PosmItems (disimpan sebagai STRING JSON, bukan object -- perlu JSON.parse).
 function ringkasanLaporan(r) {
   const cat = r.Kategori || r.category;
   if (cat === "posm") {
@@ -2058,8 +2060,8 @@ function GaleriPerBranch({ members, rgeReports }) {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {photos.map((r) => {
-            const cat = r.Kategori || r.category;
             const isLunas = r.StatusLunas === true || r.statusLunas === true;
+            const cat = r.Kategori || r.category; // header asli n8n: "Kategori" (PascalCase)
             async function toggleLunas(e) {
               e.preventDefault();
               e.stopPropagation();
@@ -2080,7 +2082,7 @@ function GaleriPerBranch({ members, rgeReports }) {
                     <span className="text-[10px] font-bold uppercase text-indigo-600">{KATEGORI_LABEL[cat] || cat}</span>
                     <span className="text-[10px] text-slate-400">{String(r.Timestamp || r.receivedAt || "").slice(0, 10)}</span>
                   </div>
-                  <div className="text-xs font-semibold text-slate-800 truncate">{r.NamaRGE || r.namaRGE || r.sender}</div>
+                  <div className="text-xs font-semibold text-slate-800 truncate">{r.NamaRGE || r.namaRGE || r.Sender || r.sender}</div>
                   <div className="text-[11px] text-slate-500 truncate">{ringkasanLaporan(r)}</div>
                   {cat === "nota" && (
                     <button
@@ -2106,9 +2108,9 @@ function monthKeyOf(cursor) { return `${cursor.y}-${String(cursor.m + 1).padStar
 function pct(achv, target) { return target > 0 ? Math.round((achv / target) * 100) : 0; }
 
 function hitungAchievement(memberId, monthKey, rgeReports) {
+  const memberDigits = digitsOnly(memberId);
   const rows = rgeReports.filter((r) => {
-    const senderDigits = String(r.Sender ?? r.sender ?? "").replace(/\D/g, "");
-    const memberDigits = String(memberId ?? "").replace(/\D/g, "");
+    const senderDigits = reportSenderDigits(r);
     const ts = String(r.Timestamp || r.receivedAt || "");
     return senderDigits && memberDigits && senderDigits === memberDigits && ts.slice(0, 7) === monthKey;
   });
@@ -2529,8 +2531,8 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
     .sort((a, b) => String(b.Timestamp || b.receivedAt || "").localeCompare(String(a.Timestamp || a.receivedAt || "")))
     .slice(0, 8)
     .map((r) => {
-      const senderDigits = String(r.Sender ?? r.sender ?? "").replace(/\D/g, "");
-      const name = r.NamaRGE || r.namaRGE || members.find((m) => String(m.phone || "").replace(/\D/g, "") === senderDigits)?.name || "Tim RGE";
+      const senderDigits = reportSenderDigits(r);
+      const name = members.find((m) => digitsOnly(m.phone) && digitsOnly(m.phone) === senderDigits)?.name || "Tim RGE";
       return { key: `rep-${r.id}`, ts: r.Timestamp || r.receivedAt || "", icon: MessageCircle, tone: "#059669", text: `${name} mengirim report via WA`, sub: (r.Kategori || r.category || "").toUpperCase() || null };
     });
   const activityFeed = [...recentDone, ...recentReports]
