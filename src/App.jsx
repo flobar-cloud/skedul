@@ -179,21 +179,30 @@ function statusOf(activity, now = new Date()) {
   return "menunggu_report";
 }
 function reportInfoForActivity(activity, member, rgeReports = []) {
-  const categoryMap = { branding: "posm", posm: "posm", event: "event", dtu: "dtu", desa: "desa", school: "school", fwa: "fwa", nota: "nota" };
+  const categoryMap = {
+    branding: "posm", posm: "posm",
+    event: "event",
+    dtu: "dtu",
+    "attack desa": "desa", desa: "desa",
+    "attack school": "school", school: "school",
+    fwa: "fwa",
+    nota: "nota",
+  };
   const wanted = categoryMap[String(activity?.jenisKegiatan || "").toLowerCase()];
-  const memberId = activity?.assignedMemberId;
+  const memberDigits = String(member?.phone ?? activity?.assignedMemberId ?? "").replace(/\D/g, "");
 
-  // Prioritas baru: n8n menyimpan hubungan eksplisit activityId pada rgeReports.
-  // Ini menghilangkan ambiguitas ketika satu RGE punya beberapa kegiatan pada tanggal/kategori yang sama.
-  const directRows = rgeReports.filter((r) => String(r.activityId || r.ActivityId || "") === String(activity?.id || ""));
+  // Prioritas utama: n8n ("Cocokkan Laporan RGE ke Kegiatan") menyimpan ActivityId eksplisit di
+  // rgeReports kalau berhasil dicocokkan (hanya kalau kandidatnya tunggal/tidak ambigu).
+  const directRows = rgeReports.filter((r) => String(r.ActivityId || r.activityId || "") === String(activity?.id || "") && String(activity?.id || ""));
 
-  // Fallback legacy: tetap mendukung laporan lama yang belum memiliki activityId.
+  // Fallback: laporan yang BELUM ke-link explicit oleh n8n (ActivityId kosong -- ambigu atau tidak
+  // ada kandidat) dicocokkan manual di sini via nomor WA (Sender) + kategori + tanggal.
   const rows = directRows.length > 0 ? directRows : rgeReports.filter((r) => {
-    const mid = r.memberId || r.MemberId;
-    const cat = String(r.category || r.Kategori || "").toLowerCase();
+    const cat = String(r.Kategori || r.category || "").toLowerCase();
     const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
     const date = ts.slice(0, 10);
-    const memberMatch = !memberId || !mid || String(mid) === String(memberId) || String(r.phone || r.Phone || r.nomor || "") === String(member?.phone || "");
+    const senderDigits = String(r.Sender ?? r.sender ?? r.phone ?? "").replace(/\D/g, "");
+    const memberMatch = !memberDigits || (senderDigits && senderDigits === memberDigits);
     const categoryMatch = !wanted || !cat || cat === wanted;
     const dateMatch = !activity?.date || !date || date === activity.date;
     return memberMatch && categoryMatch && dateMatch;
@@ -544,48 +553,48 @@ export default function PapanKegiatan() {
 
   const SidebarContent = (
     <div className="h-full flex flex-col bg-[#0B1220] text-white overflow-y-auto">
-      <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 shrink-0">
-        <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-sm shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#DB2777)" }}><Rocket size={16} /></div>
+      <div className="flex items-center gap-3 px-5 pt-5 pb-4">
+        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-sm shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#DB2777)" }}><Rocket size={19} /></div>
         <div className="min-w-0">
-          <div className="font-extrabold text-sm tracking-tight truncate leading-tight">Team Planner</div>
-          <div className="text-[9px] text-slate-400 font-semibold tracking-wide leading-tight">PLAN · EXECUTE · ACHIEVE</div>
+          <div className="font-extrabold tracking-tight truncate">Team Planner</div>
+          <div className="text-[10px] text-slate-400 font-semibold tracking-wide">PLAN · EXECUTE · ACHIEVE</div>
         </div>
         <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-slate-400 hover:text-white"><X size={18} /></button>
       </div>
 
-      <nav className="px-2.5 flex flex-col gap-0.5 shrink-0">
+      <nav className="shrink-0 px-3 flex flex-col gap-0.5">
         {NAV_ITEMS.map(({ k, label, icon: Icon }) => {
           const active = activeNavKey === k;
           const showAlert = k === "notifikasi" && notifItems.length > 0;
           return (
-            <button key={k} onClick={() => goToNav(k)} className={`relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-semibold transition ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
-              <Icon size={15} className="shrink-0" />
+            <button key={k} onClick={() => goToNav(k)} className={`relative flex items-center gap-3 px-3.5 py-2 rounded-xl text-sm font-semibold transition ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
+              <Icon size={17} className="shrink-0" />
               <span className="truncate">{label}</span>
-              {showAlert && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[8px] font-bold flex items-center justify-center">{notifItems.length}</span>}
+              {showAlert && <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">{notifItems.length}</span>}
             </button>
           );
         })}
       </nav>
 
-      <div className="px-2.5 pt-2.5 shrink-0">
-        <div className="rounded-xl p-3 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#065F46,#0D9488)" }}>
-          <div className="absolute -right-6 -top-6 w-20 h-20 rounded-full bg-white/10" />
+      <div className="px-3 pb-2 pt-1">
+        <div className="rounded-2xl p-3 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#065F46,#0D9488)" }}>
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
           <div className="relative">
-            <div className="w-7 h-7 rounded-lg bg-white/15 flex items-center justify-center mb-2"><MessageCircle size={13} /></div>
-            <div className="font-extrabold text-[13px] leading-tight">Otomasi Aktif</div>
-            <div className="text-[10px] text-emerald-100 mt-1 leading-snug">Reminder ke tim &amp; Report via WA dengan n8n + Waha</div>
-            <button onClick={() => setInfoOpen(true)} className="mt-2 w-full text-[11px] font-bold bg-white text-emerald-700 rounded-lg py-1.5 flex items-center justify-center gap-1 hover:bg-emerald-50 transition">Lihat Detail <ArrowUpRight size={12} /></button>
+            <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center mb-2"><MessageCircle size={15} /></div>
+            <div className="font-extrabold text-sm">Otomasi Aktif</div>
+            <div className="text-[11px] text-emerald-100 mt-0.5 leading-snug">Reminder ke tim &amp; Report via WA dengan n8n + Waha</div>
+            <button onClick={() => setInfoOpen(true)} className="mt-2 w-full text-xs font-bold bg-white text-emerald-700 rounded-lg py-1.5 flex items-center justify-center gap-1 hover:bg-emerald-50 transition">Lihat Detail <ArrowUpRight size={13} /></button>
           </div>
         </div>
       </div>
 
-      <div className="px-2.5 pt-3 pb-3 shrink-0">
-        <div className="text-[9px] font-black uppercase tracking-wider text-slate-500 px-1 mb-1.5">Quick Action</div>
+      <div className="px-3 pb-3">
+        <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-1 mb-1.5">Quick Action</div>
         <div className="flex flex-col gap-1">
-          <button onClick={() => { setShowAddActivity(todayKey()); setSidebarOpen(false); }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-bold bg-indigo-600 hover:bg-indigo-500 transition text-white"><Plus size={13} /> Tambah Jadwal</button>
-          <button onClick={() => { setShowSim(true); setSidebarOpen(false); }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Send size={13} /> Kirim Report WA</button>
+          <button onClick={() => { setShowAddActivity(todayKey()); setSidebarOpen(false); }} className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 transition text-white"><Plus size={15} /> Tambah Jadwal</button>
+          <button onClick={() => { setShowSim(true); setSidebarOpen(false); }} className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Send size={15} /> Kirim Report WA</button>
           <div className="relative">
-            <button onClick={() => { setShowMigrasi(true); setSidebarOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Wand2 size={13} /> Rapikan Kategori</button>
+            <button onClick={() => { setShowMigrasi(true); setSidebarOpen(false); }} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 border border-white/10 transition text-slate-200"><Wand2 size={15} /> Rapikan Kategori</button>
             {activities.some((a) => !JENIS_KEGIATAN_OPSI.includes(a.jenisKegiatan)) && <span className="absolute top-1.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 border-2 border-[#0B1220]" />}
           </div>
         </div>
@@ -691,7 +700,7 @@ export default function PapanKegiatan() {
                 )}
               </div>
 
-              <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold"><MessageCircle size={12} /> WA Gateway <span className="hidden xl:inline">· Connected</span></span>
+              <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold"><MessageCircle size={12} /> WA Gateway <span className="hidden lg:inline">· Connected</span></span>
 
               <button onClick={() => goToNav("pengaturan")} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-slate-100 transition">
                 <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#7C3AED)" }}>AM</span>
@@ -890,7 +899,7 @@ function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCur
   const monthLabel=days[0].getMonth()===days[6].getMonth()?`${BULAN[days[0].getMonth()]} ${days[0].getFullYear()}`:`${BULAN[days[0].getMonth()]} – ${BULAN[days[6].getMonth()]} ${days[6].getFullYear()}`;
   const statusOptions=[["all","Semua status"],["belum_mulai","Belum mulai"],["hari_ini","Hari ini"],["berjalan","Sedang berjalan"],["menunggu_report","Menunggu report"],["selesai","Selesai"],["overdue","Overdue"]];
   return <div className="space-y-5">
-    <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4"><div><div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-indigo-500"/><span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-indigo-600">Team Operations</span></div><h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Weekly Planner</h1><p className="text-sm text-slate-500 mt-1">Pantau 18 anggota dalam satu timeline — jadwal, eksekusi, dan report WA.</p></div><div className="flex items-center gap-2"><button onClick={() => onViewChange("monthly")} className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600">Kalender Bulanan</button><GhostBtn onClick={goToday}>Hari ini</GhostBtn><IconBtn onClick={()=>moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={18}/></IconBtn><IconBtn onClick={()=>moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={18}/></IconBtn></div></div>
+    <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4"><div><div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-indigo-500"/><span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-indigo-600">Team Operations</span></div><h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Weekly Planner</h1><p className="text-sm text-slate-500 mt-1">Pantau 18 anggota dalam satu timeline — jadwal, eksekusi, dan report WA.</p></div><div className="flex items-center gap-2"><button onClick={() => onViewChange("monthly")} className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600">Kalender Bulanan</button><GhostBtn onClick={goToday}>Hari ini</GhostBtn><IconBtn onClick={()=>moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={18}/></IconBtn><IconBtn onClick={()=>moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={18}/></IconBtn></div></div>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[["Total kegiatan",weekTotal,"Minggu ini","text-slate-900","bg-slate-100"],["Selesai",weekDone,`${completion}% completion`,"text-emerald-600","bg-emerald-50"],["Perlu perhatian",weekPending,"Overdue + report","text-rose-600","bg-rose-50"],["Tim aktif",new Set(weekActivities.map(a=>a.assignedMemberId).filter(Boolean)).size,`${visibleMembers.length} anggota terdaftar`,"text-indigo-600","bg-indigo-50"]].map(([label,value,sub,text,bg])=><div key={label} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className={`w-8 h-8 rounded-xl ${bg} flex items-center justify-center mb-3`}><span className={`font-black ${text}`}>•</span></div><div className={`text-2xl font-black ${text}`}>{value}</div><div className="text-xs font-bold text-slate-700 mt-0.5">{label}</div><div className="text-[10px] text-slate-400 mt-1">{sub}</div></div>)}</div>
     <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden"><div className="px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/70"><div><div className="font-extrabold text-slate-900">{monthLabel}</div><div className="text-[10px] text-slate-400 font-semibold">{weekKeys[0]} — {weekKeys[6]}</div></div><div className="flex items-center gap-3 text-[10px] font-bold text-slate-400"><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-500"/> Berjalan</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-rose-500"/> Perhatian</span></div></div>
@@ -1867,16 +1876,23 @@ const KATEGORI_LABEL = {
   school: "School", fwa: "FWA", nota: "Nota",
 };
 function ringkasanLaporan(r) {
-  if (r.category === "posm" && r.posmItems) {
-    return Object.entries(r.posmItems).map(([k, v]) => `${k} ${v}pcs`).join(", ");
+  const cat = r.Kategori || r.category;
+  if (cat === "posm") {
+    let items = {};
+    try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || r.posmItems || {}); }
+    catch { items = {}; }
+    return Object.entries(items).map(([k, v]) => `${k} ${v}pcs`).join(", ");
   }
-  if (r.category === "event") return [r.namaEvent, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "dtu") return [r.namaLokasi, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "desa") return [r.namaDesa, r.siteId ? `Site ${r.siteId}` : null, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "school") return [r.namaSekolah, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "fwa") return [r.msisdn, r.imei].filter(Boolean).join(" · ");
-  if (r.category === "nota") return [r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.nominal ? `Rp${Number(r.nominal).toLocaleString("id-ID")}` : null].filter(Boolean).join(" · ");
-  return r.rawCaption || "";
+  const spIM3 = r.SP_IM3 ?? r.spIM3;
+  const sp3ID = r.SP_3ID ?? r.sp3ID;
+  const fwa = r.FWA ?? r.fwa;
+  if (cat === "event") return [r.NamaEvent || r.namaEvent, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "dtu") return [r.NamaLokasi || r.namaLokasi, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "desa") return [r.NamaDesa || r.namaDesa, (r.SiteId || r.siteId) ? `Site ${r.SiteId || r.siteId}` : null, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "school") return [r.NamaSekolah || r.namaSekolah, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "fwa") return [r.Msisdn || r.msisdn, r.Imei || r.imei].filter(Boolean).join(" · ");
+  if (cat === "nota") return [spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, (r.Nominal || r.nominal) ? `Rp${Number(r.Nominal || r.nominal).toLocaleString("id-ID")}` : null].filter(Boolean).join(" · ");
+  return r.RawCaption || r.rawCaption || "";
 }
 function GaleriPerBranch({ members, rgeReports }) {
   // Branch diambil dinamis dari data anggota RGE yang ada, bukan di-hardcode -- otomatis
@@ -1942,7 +1958,7 @@ function GaleriPerBranch({ members, rgeReports }) {
                   </div>
                   <div className="text-xs font-semibold text-slate-800 truncate">{r.NamaRGE || r.namaRGE || r.sender}</div>
                   <div className="text-[11px] text-slate-500 truncate">{ringkasanLaporan(r)}</div>
-                  {r.category === "nota" && (
+                  {(r.Kategori || r.category) === "nota" && (
                     <button
                       onClick={toggleLunas}
                       className={`mt-1.5 w-full text-[10px] font-semibold py-1 rounded-md border transition ${isLunas ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-amber-50 border-amber-300 text-amber-700"}`}
@@ -1967,9 +1983,12 @@ function pct(achv, target) { return target > 0 ? Math.round((achv / target) * 10
 
 function hitungAchievement(memberId, monthKey, rgeReports) {
   const rows = rgeReports.filter((r) => {
-    const mid = r.memberId || r.MemberId;
+    // rgeReports (n8n) tidak selalu punya memberId yang cocok 1:1 -- yang selalu ada dan konsisten
+    // adalah "Sender" (nomor WA). memberId di sini = Firestore doc id member = nomor WA juga.
+    const senderDigits = String(r.Sender ?? r.sender ?? "").replace(/\D/g, "");
+    const memberDigits = String(memberId ?? "").replace(/\D/g, "");
     const ts = String(r.Timestamp || r.receivedAt || "");
-    return mid === memberId && ts.slice(0, 7) === monthKey;
+    return senderDigits && memberDigits && senderDigits === memberDigits && ts.slice(0, 7) === monthKey;
   });
   let achvSP = 0, achvFWA = 0, achvDesa = 0, achvSchool = 0, achvNotaLunas = 0, achvNotaTotal = 0;
   rows.forEach((r) => {
@@ -2329,26 +2348,26 @@ function Dashboard({ activities, members, rgeReports, weekCursor, setWeekCursor,
   return (
     <div className="flex flex-col gap-5">
       {/* Hero */}
-      <section className="relative overflow-hidden rounded-3xl p-6 sm:p-7 text-white shadow-sm" style={{ background: "linear-gradient(120deg,#0F172A 0%,#312E81 45%,#4F46E5 78%,#7C3AED 100%)" }}>
-        <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-white/10" />
-        <div className="absolute right-24 -bottom-24 w-64 h-64 rounded-full bg-fuchsia-400/10" />
-        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+      <section className="relative overflow-hidden rounded-2xl p-5 sm:p-6 text-white shadow-sm" style={{ background: "linear-gradient(120deg,#0F172A 0%,#312E81 45%,#4F46E5 78%,#7C3AED 100%)" }}>
+        <div className="absolute -right-8 -top-12 w-36 h-36 rounded-full bg-white/10" />
+        <div className="absolute right-16 -bottom-16 w-44 h-44 rounded-full bg-fuchsia-400/10" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-100 text-[11px] font-semibold mb-3">
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/10 text-indigo-100 text-[10px] font-semibold mb-2">
               <span className="w-2 h-2 rounded-full bg-emerald-300" /> Team operation center
             </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{greetingNow()} 👋</h2>
-            <p className="text-indigo-100 text-sm mt-1">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
-            <p className="text-indigo-200 text-xs mt-3">{dayLabel}</p>
+            <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">{greetingNow()} 👋</h2>
+            <p className="text-indigo-100 text-xs sm:text-sm mt-1">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
+            <p className="text-indigo-200 text-xs mt-2">{dayLabel}</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 min-w-[260px]">
-            <div className="rounded-2xl bg-white/10 border border-white/10 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Execution hari ini</div>
-              <div className="text-2xl font-extrabold mt-1">{completion}%</div>
+          <div className="grid grid-cols-2 gap-2 min-w-[220px]">
+            <div className="rounded-xl bg-white/10 border border-white/10 p-2.5">
+              <div className="text-[9px] uppercase tracking-wider text-indigo-200 font-bold">Execution hari ini</div>
+              <div className="text-xl font-extrabold mt-0.5">{completion}%</div>
             </div>
-            <div className="rounded-2xl bg-white/10 border border-white/10 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-indigo-200 font-bold">Bulan berjalan</div>
-              <div className="text-2xl font-extrabold mt-1">{monthRate}%</div>
+            <div className="rounded-xl bg-white/10 border border-white/10 p-2.5">
+              <div className="text-[9px] uppercase tracking-wider text-indigo-200 font-bold">Bulan berjalan</div>
+              <div className="text-xl font-extrabold mt-0.5">{monthRate}%</div>
             </div>
           </div>
         </div>
