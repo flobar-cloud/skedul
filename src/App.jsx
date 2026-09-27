@@ -166,21 +166,30 @@ function statusOf(activity, now = new Date()) {
   return "menunggu_report";
 }
 function reportInfoForActivity(activity, member, rgeReports = []) {
-  const categoryMap = { branding: "posm", posm: "posm", event: "event", dtu: "dtu", desa: "desa", school: "school", fwa: "fwa", nota: "nota" };
+  const categoryMap = {
+    branding: "posm", posm: "posm",
+    event: "event",
+    dtu: "dtu",
+    "attack desa": "desa", desa: "desa",
+    "attack school": "school", school: "school",
+    fwa: "fwa",
+    nota: "nota",
+  };
   const wanted = categoryMap[String(activity?.jenisKegiatan || "").toLowerCase()];
-  const memberId = activity?.assignedMemberId;
+  const memberDigits = String(member?.phone ?? activity?.assignedMemberId ?? "").replace(/\D/g, "");
 
-  // Prioritas baru: n8n menyimpan hubungan eksplisit activityId pada rgeReports.
-  // Ini menghilangkan ambiguitas ketika satu RGE punya beberapa kegiatan pada tanggal/kategori yang sama.
-  const directRows = rgeReports.filter((r) => String(r.activityId || r.ActivityId || "") === String(activity?.id || ""));
+  // Prioritas utama: n8n ("Cocokkan Laporan RGE ke Kegiatan") menyimpan ActivityId eksplisit di
+  // rgeReports kalau berhasil dicocokkan (hanya kalau kandidatnya tunggal/tidak ambigu).
+  const directRows = rgeReports.filter((r) => String(r.ActivityId || r.activityId || "") === String(activity?.id || "") && String(activity?.id || ""));
 
-  // Fallback legacy: tetap mendukung laporan lama yang belum memiliki activityId.
+  // Fallback: laporan yang BELUM ke-link explicit oleh n8n (ActivityId kosong) dicocokkan manual
+  // via nomor WA (Sender) + kategori + tanggal.
   const rows = directRows.length > 0 ? directRows : rgeReports.filter((r) => {
-    const mid = r.memberId || r.MemberId;
-    const cat = String(r.category || r.Kategori || "").toLowerCase();
+    const cat = String(r.Kategori || r.category || "").toLowerCase();
     const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
     const date = ts.slice(0, 10);
-    const memberMatch = !memberId || !mid || String(mid) === String(memberId) || String(r.phone || r.Phone || r.nomor || "") === String(member?.phone || "");
+    const senderDigits = String(r.Sender ?? r.sender ?? r.phone ?? "").replace(/\D/g, "");
+    const memberMatch = !memberDigits || (senderDigits && senderDigits === memberDigits);
     const categoryMatch = !wanted || !cat || cat === wanted;
     const dateMatch = !activity?.date || !date || date === activity.date;
     return memberMatch && categoryMatch && dateMatch;
@@ -1990,16 +1999,23 @@ const KATEGORI_LABEL = {
   school: "School", fwa: "FWA", nota: "Nota",
 };
 function ringkasanLaporan(r) {
-  if (r.category === "posm" && r.posmItems) {
-    return Object.entries(r.posmItems).map(([k, v]) => `${k} ${v}pcs`).join(", ");
+  const cat = r.Kategori || r.category;
+  if (cat === "posm") {
+    let items = {};
+    try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || r.posmItems || {}); }
+    catch { items = {}; }
+    return Object.entries(items).map(([k, v]) => `${k} ${v}pcs`).join(", ");
   }
-  if (r.category === "event") return [r.namaEvent, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "dtu") return [r.namaLokasi, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "desa") return [r.namaDesa, r.siteId ? `Site ${r.siteId}` : null, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "school") return [r.namaSekolah, r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.fwa ? `FWA ${r.fwa}` : null].filter(Boolean).join(" · ");
-  if (r.category === "fwa") return [r.msisdn, r.imei].filter(Boolean).join(" · ");
-  if (r.category === "nota") return [r.spIM3 ? `SP IM3 ${r.spIM3}` : null, r.sp3ID ? `SP 3ID ${r.sp3ID}` : null, r.nominal ? `Rp${Number(r.nominal).toLocaleString("id-ID")}` : null].filter(Boolean).join(" · ");
-  return r.rawCaption || "";
+  const spIM3 = r.SP_IM3 ?? r.spIM3;
+  const sp3ID = r.SP_3ID ?? r.sp3ID;
+  const fwa = r.FWA ?? r.fwa;
+  if (cat === "event") return [r.NamaEvent || r.namaEvent, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "dtu") return [r.NamaLokasi || r.namaLokasi, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "desa") return [r.NamaDesa || r.namaDesa, (r.SiteId || r.siteId) ? `Site ${r.SiteId || r.siteId}` : null, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "school") return [r.NamaSekolah || r.namaSekolah, spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, fwa ? `FWA ${fwa}` : null].filter(Boolean).join(" · ");
+  if (cat === "fwa") return [r.Msisdn || r.msisdn, r.Imei || r.imei].filter(Boolean).join(" · ");
+  if (cat === "nota") return [spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, (r.Nominal || r.nominal) ? `Rp${Number(r.Nominal || r.nominal).toLocaleString("id-ID")}` : null].filter(Boolean).join(" · ");
+  return r.RawCaption || r.rawCaption || "";
 }
 function GaleriPerBranch({ members, rgeReports }) {
   // Branch diambil dinamis dari data anggota RGE yang ada, bukan di-hardcode -- otomatis
@@ -2042,6 +2058,7 @@ function GaleriPerBranch({ members, rgeReports }) {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {photos.map((r) => {
+            const cat = r.Kategori || r.category;
             const isLunas = r.StatusLunas === true || r.statusLunas === true;
             async function toggleLunas(e) {
               e.preventDefault();
@@ -2056,16 +2073,16 @@ function GaleriPerBranch({ members, rgeReports }) {
                 className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-300 hover:shadow-sm transition block cursor-pointer"
               >
                 <div className="aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
-                  <img src={r.FotoURL || r.fotoUrl} alt={r.category} className="w-full h-full object-cover" />
+                  <img src={r.FotoURL || r.fotoUrl} alt={cat} className="w-full h-full object-cover" />
                 </div>
                 <div className="p-2.5">
                   <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className="text-[10px] font-bold uppercase text-indigo-600">{KATEGORI_LABEL[r.category] || r.category}</span>
+                    <span className="text-[10px] font-bold uppercase text-indigo-600">{KATEGORI_LABEL[cat] || cat}</span>
                     <span className="text-[10px] text-slate-400">{String(r.Timestamp || r.receivedAt || "").slice(0, 10)}</span>
                   </div>
                   <div className="text-xs font-semibold text-slate-800 truncate">{r.NamaRGE || r.namaRGE || r.sender}</div>
                   <div className="text-[11px] text-slate-500 truncate">{ringkasanLaporan(r)}</div>
-                  {r.category === "nota" && (
+                  {cat === "nota" && (
                     <button
                       onClick={toggleLunas}
                       className={`mt-1.5 w-full text-[10px] font-semibold py-1 rounded-md border transition ${isLunas ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-amber-50 border-amber-300 text-amber-700"}`}
@@ -2090,9 +2107,10 @@ function pct(achv, target) { return target > 0 ? Math.round((achv / target) * 10
 
 function hitungAchievement(memberId, monthKey, rgeReports) {
   const rows = rgeReports.filter((r) => {
-    const mid = r.memberId || r.MemberId;
+    const senderDigits = String(r.Sender ?? r.sender ?? "").replace(/\D/g, "");
+    const memberDigits = String(memberId ?? "").replace(/\D/g, "");
     const ts = String(r.Timestamp || r.receivedAt || "");
-    return mid === memberId && ts.slice(0, 7) === monthKey;
+    return senderDigits && memberDigits && senderDigits === memberDigits && ts.slice(0, 7) === monthKey;
   });
   let achvSP = 0, achvFWA = 0, achvDesa = 0, achvSchool = 0, achvNotaLunas = 0, achvNotaTotal = 0;
   rows.forEach((r) => {
@@ -2511,7 +2529,8 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
     .sort((a, b) => String(b.Timestamp || b.receivedAt || "").localeCompare(String(a.Timestamp || a.receivedAt || "")))
     .slice(0, 8)
     .map((r) => {
-      const name = members.find((m) => m.id === (r.memberId || r.MemberId) || m.phone === (r.phone || r.Phone))?.name || "Tim RGE";
+      const senderDigits = String(r.Sender ?? r.sender ?? "").replace(/\D/g, "");
+      const name = r.NamaRGE || r.namaRGE || members.find((m) => String(m.phone || "").replace(/\D/g, "") === senderDigits)?.name || "Tim RGE";
       return { key: `rep-${r.id}`, ts: r.Timestamp || r.receivedAt || "", icon: MessageCircle, tone: "#059669", text: `${name} mengirim report via WA`, sub: (r.Kategori || r.category || "").toUpperCase() || null };
     });
   const activityFeed = [...recentDone, ...recentReports]
