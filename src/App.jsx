@@ -2346,8 +2346,9 @@ function Dashboard({ activities, members, rgeReports, weekCursor, setWeekCursor,
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Hero */}
-      <section className="relative overflow-hidden rounded-2xl p-4 sm:p-5 text-white shadow-sm" style={{ background: "linear-gradient(120deg,#0F172A 0%,#312E81 45%,#4F46E5 78%,#7C3AED 100%)" }}>
+      {/* Hero + Ringkasan Kegiatan sejajar di baris paling atas */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+      <section className="relative overflow-hidden rounded-2xl p-4 sm:p-5 text-white shadow-sm lg:col-span-2" style={{ background: "linear-gradient(120deg,#0F172A 0%,#312E81 45%,#4F46E5 78%,#7C3AED 100%)" }}>
         <div className="absolute -right-8 -top-10 w-28 h-28 rounded-full bg-white/10" />
         <div className="absolute right-12 -bottom-12 w-32 h-32 rounded-full bg-fuchsia-400/10" />
         <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -2371,6 +2372,8 @@ function Dashboard({ activities, members, rgeReports, weekCursor, setWeekCursor,
           </div>
         </div>
       </section>
+      <DonutRingkasan categoryStats={categoryStats} total={totalToday} />
+      </div>
 
       {/* Stat cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -2404,7 +2407,6 @@ function Dashboard({ activities, members, rgeReports, weekCursor, setWeekCursor,
           />
         </div>
         <div className="flex flex-col gap-5">
-          <DonutRingkasan categoryStats={categoryStats} total={totalToday} />
           <KpiGaugeCard rate={weekRate} delta={weekDelta} />
           <ReportWaCard items={reportPendingItems} members={members} onOpenActivity={onOpenActivity} onSeeAllNotif={onSeeAllNotif} />
           <AktivitasTerbaruCard feed={activityFeed} />
