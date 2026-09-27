@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import {
   ChevronLeft, ChevronRight, Camera, Check, Plus, X, Users,
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
   Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2, Wand2,
-  Download, LayoutGrid, ClipboardList, Home, Search, Bell, Settings,
-  TrendingUp, AlertTriangle, Clock3, CheckCircle2, ListTodo, Filter,
-  Menu, Activity, MessageSquare, ChevronDown, MapPin
+  Download, LayoutGrid, ClipboardList, LayoutDashboard, Bell, Search, Wifi, ArrowUpRight, CheckCircle2, AlertTriangle, Clock, Zap,
+  Settings, TrendingUp, Award, FileUp, ChevronDown, Home, UserCircle2, LogOut
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -41,35 +40,23 @@ const CHIP_PALETTE = [
   "#DB2777", // pink
   "#0891B2", // cyan
 ];
-// Warna identitas per anggota — berbeda untuk tiap orang, bukan berdasarkan posisi.
-const MEMBER_PALETTE = [
-  "#4F46E5", "#059669", "#D97706", "#DB2777",
-  "#0891B2", "#7C3AED", "#EA580C", "#0F766E",
-];
-function memberColor(member, fallbackIndex = 0) {
-  const raw = String(member?.id || member?.phone || member?.name || fallbackIndex);
-  let h = 0;
-  for (let i = 0; i < raw.length; i++) h = (h * 31 + raw.charCodeAt(i)) >>> 0;
-  return MEMBER_PALETTE[h % MEMBER_PALETTE.length];
-}
-function activityState(activity) {
-  if (!activity) return { key: "rencana", label: "Rencana", color: "#64748B", bg: "#F1F5F9" };
-  if (activity.status === "selesai") return { key: "selesai", label: "Selesai", color: "#059669", bg: "#ECFDF5" };
-  const now = new Date();
-  const due = activity.time
-    ? new Date(`${activity.date}T${activity.time}:00`)
-    : new Date(`${activity.date}T23:59:59`);
-  if (activity.date && due < now) return { key: "overdue", label: "Overdue", color: "#DC2626", bg: "#FEF2F2" };
-  if (activity.date === todayKey()) return { key: "today", label: "Hari Ini", color: "#2563EB", bg: "#EFF6FF" };
-  return { key: "rencana", label: "Rencana", color: "#64748B", bg: "#F8FAFC" };
-}
-function activityProgress(activity) {
-  const p = Number(activity?.progress);
-  if (Number.isFinite(p) && p >= 0) return Math.max(0, Math.min(100, p));
-  return activity?.status === "selesai" ? 100 : 0;
-}
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+
+// Warna + ikon per JENIS KEGIATAN (bukan per anggota) -- dipakai di grid Jadwal Tim (Beranda) dan
+// donut "Ringkasan Kegiatan" supaya kategori yang sama selalu tampil dengan warna yang sama di
+// seluruh halaman, mengikuti gaya referensi desain (chip kegiatan berwarna pastel per kategori).
+const CATEGORY_META = {
+  "Branding":      { color: "#7C3AED", bg: "#F5F3FF", icon: Send },
+  "DTU":           { color: "#2563EB", bg: "#EFF6FF", icon: Building2 },
+  "Attack Desa":   { color: "#DC2626", bg: "#FEF2F2", icon: AlertTriangle },
+  "Attack School": { color: "#059669", bg: "#ECFDF5", icon: CheckCircle2 },
+  "Event":         { color: "#EA580C", bg: "#FFF7ED", icon: CalendarIcon },
+  "FWA":           { color: "#0891B2", bg: "#ECFEFF", icon: Wifi },
+};
+function categoryMeta(label) {
+  return CATEGORY_META[label] || { color: "#64748B", bg: "#F1F5F9", icon: LayoutGrid };
+}
 
 // Pemetaan region REGB (Regional Bali) / REGN (Regional Nusra) ke branch di bawahnya. Dipakai
 // sebagai acuan kalau nanti Rekap KPI / notifikasi WA butuh menampilkan gabungan beberapa branch
@@ -142,6 +129,72 @@ function posisiColor(posisi) {
   for (let i = 0; i < (posisi || "").length; i++) h = (h * 31 + posisi.charCodeAt(i)) >>> 0;
   return CHIP_PALETTE[h % CHIP_PALETTE.length];
 }
+// Warna per-ORANG (bukan per-posisi seperti posisiColor) -- dipakai di Dashboard/Planner/Team supaya
+// tiap anggota punya 1 warna konsisten sendiri (mis. selalu biru buat Andi, hijau buat Budi, dst).
+function memberColor(memberIdOrName) {
+  const s = String(memberIdOrName || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return CHIP_PALETTE[h % CHIP_PALETTE.length];
+}
+
+// ---------- Status kegiatan yang "hidup" (diturunkan dari tanggal/jam + status rencana/selesai yang
+// SUDAH ADA di Firestore -- TIDAK menambah field baru). 6 state: belum_mulai, hari_ini, berjalan,
+// menunggu_report, selesai, overdue. Dipakai di Dashboard, Planner, dan badge kegiatan lainnya. ----------
+const STATUS_META = {
+  belum_mulai:      { label: "Belum Mulai",      color: "#94A3B8", bg: "#F1F5F9" },
+  hari_ini:         { label: "Hari Ini",         color: "#4F46E5", bg: "#EEF2FF" },
+  berjalan:         { label: "Sedang Berjalan",  color: "#D97706", bg: "#FFFBEB" },
+  menunggu_report:  { label: "Menunggu Report",  color: "#DB2777", bg: "#FDF2F8" },
+  selesai:          { label: "Selesai",          color: "#059669", bg: "#ECFDF5" },
+  overdue:          { label: "Overdue",          color: "#DC2626", bg: "#FEF2F2" },
+};
+function statusOf(activity, now = new Date()) {
+  if (activity.status === "selesai") return "selesai";
+  const parts = String(activity.date || "").split("-").map(Number);
+  if (parts.length !== 3 || !parts[0]) return "belum_mulai";
+  const [y, m, d] = parts;
+  const [hh, mm] = String(activity.time || "00:00").split(":").map(Number);
+  const scheduled = new Date(y, m - 1, d, hh || 0, mm || 0);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const actDateStart = new Date(y, m - 1, d);
+  if (actDateStart < todayStart) return "overdue";
+  if (actDateStart > todayStart) return "belum_mulai";
+  const diffHours = (now - scheduled) / 36e5;
+  if (diffHours < 0) return "hari_ini";
+  if (diffHours <= 3) return "berjalan";
+  return "menunggu_report";
+}
+function reportInfoForActivity(activity, member, rgeReports = []) {
+  const categoryMap = { branding: "posm", posm: "posm", event: "event", dtu: "dtu", desa: "desa", school: "school", fwa: "fwa", nota: "nota" };
+  const wanted = categoryMap[String(activity?.jenisKegiatan || "").toLowerCase()];
+  const memberId = activity?.assignedMemberId;
+
+  // Prioritas baru: n8n menyimpan hubungan eksplisit activityId pada rgeReports.
+  // Ini menghilangkan ambiguitas ketika satu RGE punya beberapa kegiatan pada tanggal/kategori yang sama.
+  const directRows = rgeReports.filter((r) => String(r.activityId || r.ActivityId || "") === String(activity?.id || ""));
+
+  // Fallback legacy: tetap mendukung laporan lama yang belum memiliki activityId.
+  const rows = directRows.length > 0 ? directRows : rgeReports.filter((r) => {
+    const mid = r.memberId || r.MemberId;
+    const cat = String(r.category || r.Kategori || "").toLowerCase();
+    const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
+    const date = ts.slice(0, 10);
+    const memberMatch = !memberId || !mid || String(mid) === String(memberId) || String(r.phone || r.Phone || r.nomor || "") === String(member?.phone || "");
+    const categoryMatch = !wanted || !cat || cat === wanted;
+    const dateMatch = !activity?.date || !date || date === activity.date;
+    return memberMatch && categoryMatch && dateMatch;
+  });
+  const latest = rows.sort((a,b) => String(b.Timestamp || b.receivedAt || b.timestamp || "").localeCompare(String(a.Timestamp || a.receivedAt || a.timestamp || "")))[0];
+  const photo = latest?.FotoURL || latest?.fotoUrl || latest?.photoUrl || latest?.imageUrl;
+  const hasil = activity?.hasil || {};
+  const hasResult = Object.values(hasil).some(v => Number(v) > 0 || (typeof v === "string" && v.trim()));
+  return { received: Boolean(latest), photo: Boolean(photo), latest, hasResult, linkedByActivityId: directRows.length > 0 };
+}
+
+function progressOf(status) {
+  return { belum_mulai: 0, hari_ini: 10, berjalan: 55, menunggu_report: 80, selesai: 100, overdue: 30 }[status] ?? 0;
+}
 function resizeImage(file, maxDim = 900, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -203,6 +256,43 @@ const inputStyle = {
   border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 10px",
   fontSize: 14, color: COLORS.ink, background: "#fff", outline: "none", width: "100%",
 };
+
+// ---------- Donut chart (SVG stroke-based, dependency-free) ----------
+// segments: [{ label, value, color }]. Dipakai untuk "Ringkasan Kegiatan" (multi-kategori) dan bisa
+// juga dipakai untuk gauge 1 nilai (2 segmen: capaian vs sisa) di "Pencapaian KPI".
+function DonutChart({ segments, size = 112, thickness = 14, centerLabel, centerSub }) {
+  const total = segments.reduce((s, x) => s + Math.max(0, x.value), 0);
+  const r = (size - thickness) / 2;
+  const circumference = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#F1F5F9" strokeWidth={thickness} />
+        {total > 0 && segments.filter(s => s.value > 0).map((s, i) => {
+          const frac = s.value / total;
+          const dash = frac * circumference;
+          const circle = (
+            <circle
+              key={i}
+              cx={size / 2} cy={size / 2} r={r} fill="none"
+              stroke={s.color} strokeWidth={thickness}
+              strokeDasharray={`${dash} ${circumference - dash}`}
+              strokeDashoffset={-offset}
+              strokeLinecap={segments.length === 1 ? "round" : "butt"}
+            />
+          );
+          offset += dash;
+          return circle;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-xl font-extrabold text-slate-900 leading-none">{centerLabel}</span>
+        {centerSub && <span className="text-[9px] text-slate-400 mt-1 text-center px-2">{centerSub}</span>}
+      </div>
+    </div>
+  );
+}
 
 // ---------- Modal shell ----------
 function Modal({ onClose, children, width = 480 }) {
@@ -271,11 +361,221 @@ function EventChip({ activity }) {
   );
 }
 
+// ---------- Sidebar navigasi utama (dark) ----------
+const NAV_ITEMS = [
+  { key: "dashboard", label: "Beranda", icon: Home },
+  { key: "kalender", plannerView: "weekly", label: "Jadwal Tim", icon: CalendarIcon },
+  { key: "kalender", plannerView: "monthly", label: "Kalender", icon: LayoutGrid },
+  { key: "galeriBranch", label: "Laporan & Rekap", icon: ClipboardList },
+  { key: "rekapKPI", label: "Pencapaian KPI", icon: TrendingUp },
+  { key: "team", label: "Anggota Tim", icon: Users },
+  { key: "notifikasi", label: "Notifikasi", icon: Bell },
+  { key: "pengaturan", label: "Pengaturan", icon: Settings },
+];
+function SidebarNav({ mainTab, plannerView, onNavigate, notifCount, mobileOpen, onCloseMobile, onAddActivity, onImportExcel, onKirimReportWA }) {
+  const isActive = (item) => item.key === "kalender" ? mainTab === "kalender" && plannerView === item.plannerView : mainTab === item.key;
+  return (
+    <>
+      {mobileOpen && <div onClick={onCloseMobile} className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden" />}
+      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-[260px] shrink-0 z-50 flex flex-col text-white transition-transform duration-200 ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`} style={{ background: "linear-gradient(180deg,#0B1120 0%,#0F172A 100%)" }}>
+        <div className="px-5 pt-5 pb-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#4F46E5,#7C3AED)" }}><LayoutDashboard size={19} /></div>
+          <div className="min-w-0">
+            <div className="font-extrabold tracking-tight truncate">Team Planner</div>
+            <div className="text-[9px] text-slate-400 font-semibold tracking-widest">PLAN · EXECUTE · ACHIEVE</div>
+          </div>
+          <button onClick={onCloseMobile} className="ml-auto p-1.5 rounded-lg hover:bg-white/10 lg:hidden"><X size={16} /></button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-1">
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item);
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.label}
+                onClick={() => { onNavigate(item.key, item.plannerView); onCloseMobile(); }}
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition text-left ${active ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white hover:bg-white/5"}`}
+              >
+                <Icon size={17} className="shrink-0" />
+                <span className="flex-1 truncate">{item.label}</span>
+                {item.key === "notifikasi" && notifCount > 0 && (
+                  <span className="text-[10px] font-bold bg-rose-500 text-white rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{notifCount}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="px-3 pb-3">
+          <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: "linear-gradient(135deg,#064E3B,#065F46)" }}>
+            <div className="absolute -right-6 -top-8 w-24 h-24 rounded-full bg-white/10" />
+            <div className="relative">
+              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center mb-2"><MessageCircle size={17} /></div>
+              <div className="font-bold text-sm">Otomasi Aktif</div>
+              <p className="text-[11px] text-emerald-100/80 mt-1 leading-snug">Reminder ke team & Report via WA dengan n8n + Waha</p>
+              <button onClick={() => onNavigate("pengaturan")} className="mt-3 w-full text-center text-xs font-bold bg-white text-emerald-700 rounded-lg py-1.5 hover:bg-emerald-50 transition">Lihat Detail →</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-3 pb-5">
+          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-2 mb-2">Quick Action</div>
+          <div className="flex flex-col gap-1.5">
+            <button onClick={onAddActivity} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"><Plus size={14} /> Tambah Jadwal</button>
+            <button onClick={onImportExcel} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition"><FileUp size={14} /> Import Excel</button>
+            <button onClick={onKirimReportWA} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-white transition" style={{ background: "#25D366" }}><Send size={14} /> Kirim Report WA</button>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+// ---------- Header atas (search, notifikasi, status WA, user) ----------
+function TopHeader({ members, activities, onOpenMenu, onOpenActivity, onOpenMembers, notifCount, onOpenNotif }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const matchActivities = q ? activities.filter(a => `${a.title || ""} ${a.location || ""}`.toLowerCase().includes(q)).slice(0, 5) : [];
+  const matchMembers = q ? members.filter(m => `${m.name || ""} ${m.branch || ""}`.toLowerCase().includes(q)).slice(0, 5) : [];
+  const hasResults = matchActivities.length > 0 || matchMembers.length > 0;
+  return (
+    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+      <div className="h-16 px-4 sm:px-6 flex items-center gap-3">
+        <button onClick={onOpenMenu} className="p-2 rounded-lg hover:bg-slate-100 lg:hidden"><LayoutGrid size={18} /></button>
+        <div className="relative flex-1 max-w-md">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Cari nama tim, aktivitas, atau lokasi…"
+            className="w-full h-10 pl-9 pr-3 rounded-full border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
+          />
+          {q && hasResults && (
+            <div className="absolute mt-1.5 w-full bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-40 max-h-80 overflow-y-auto">
+              {matchActivities.length > 0 && <div className="px-3 pt-2 pb-1 text-[10px] font-black uppercase text-slate-400">Kegiatan</div>}
+              {matchActivities.map(a => (
+                <button key={a.id} onClick={() => { onOpenActivity(a.id); setQuery(""); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                  <CalendarIcon size={13} className="text-indigo-400 shrink-0" /> <span className="truncate">{a.title}</span> <span className="text-slate-400 text-xs ml-auto shrink-0">{a.date}</span>
+                </button>
+              ))}
+              {matchMembers.length > 0 && <div className="px-3 pt-2 pb-1 text-[10px] font-black uppercase text-slate-400 border-t border-slate-100">Anggota</div>}
+              {matchMembers.map(m => (
+                <button key={m.id} onClick={() => { onOpenMembers(); setQuery(""); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                  <Users size={13} className="text-emerald-400 shrink-0" /> <span className="truncate">{m.name}</span> <span className="text-slate-400 text-xs ml-auto shrink-0">{m.branch}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {q && !hasResults && (
+            <div className="absolute mt-1.5 w-full bg-white border border-slate-200 rounded-xl shadow-lg z-40 px-3 py-3 text-xs text-slate-400">Tidak ada hasil untuk "{query}".</div>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
+          <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold"><Wifi size={12} /> WA Gateway <span className="text-emerald-500">● Connected</span></span>
+          <button onClick={onOpenNotif} className="relative p-2 rounded-full hover:bg-slate-100 transition">
+            <Bell size={19} className="text-slate-500" />
+            {notifCount > 0 && <span className="absolute top-0.5 right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">{notifCount}</span>}
+          </button>
+          <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black" style={{ background: "linear-gradient(135deg,#4F46E5,#7C3AED)" }}><UserCircle2 size={18} /></div>
+            <div className="leading-tight">
+              <div className="text-xs font-bold text-slate-800">Admin</div>
+              <div className="text-[10px] text-slate-400">Team Planner</div>
+            </div>
+            <ChevronDown size={14} className="text-slate-400" />
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ---------- Notifikasi: agregasi item yang butuh perhatian di seluruh data (bukan cuma hari ini) ----------
+function NotifikasiPage({ activities, members, rgeReports, onOpen }) {
+  const now = new Date();
+  const memberOf = (id) => members.find((m) => m.id === id);
+  const items = activities
+    .map((a) => ({ ...a, _status: statusOf(a, now), _report: reportInfoForActivity(a, memberOf(a.assignedMemberId), rgeReports) }))
+    .filter((a) => a._status === "overdue" || (a._status === "menunggu_report" && !a._report.received))
+    .sort((a, b) => `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`));
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">Notifikasi</h1>
+        <p className="text-sm text-slate-500 mt-1">Kegiatan overdue dan yang belum mengirim report WA, dari seluruh jadwal.</p>
+      </div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {items.length === 0 ? (
+          <div className="p-10 text-center text-sm text-slate-400">Semua kegiatan aman, tidak ada yang butuh perhatian 🎉</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {items.map((a) => {
+              const m = memberOf(a.assignedMemberId);
+              const meta = STATUS_META[a._status];
+              return (
+                <button key={a.id} onClick={() => onOpen(a.id)} className="w-full px-5 py-3.5 flex items-center gap-3 text-left hover:bg-slate-50 transition">
+                  <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: meta.bg, color: meta.color }}>
+                    {a._status === "overdue" ? <Clock size={16} /> : <MessageCircle size={16} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold text-slate-800 truncate">{a.title}</span>
+                    <span className="block text-xs text-slate-400 truncate">{m?.name || "Tanpa PIC"} · {a.date}{a.time ? ` · ${a.time}` : ""}</span>
+                  </span>
+                  <span className="text-[11px] font-bold shrink-0" style={{ color: meta.color }}>{meta.label}</span>
+                  <ArrowUpRight size={15} className="text-slate-300 shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Pengaturan: status integrasi & jalan pintas -- bukan form konfigurasi baru (belum ada
+// backend untuk itu), supaya tidak menampilkan tombol yang keliatan aktif tapi sebenarnya tidak
+// tersambung ke apa pun. ----------
+function PengaturanPage({ onOpenInfo, onOpenMembers, onOpenMigrasi }) {
+  return (
+    <div className="flex flex-col gap-5 max-w-2xl">
+      <div>
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">Pengaturan</h1>
+        <p className="text-sm text-slate-500 mt-1">Status integrasi dan jalan pintas pengaturan data.</p>
+      </div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col gap-3">
+        <h3 className="font-bold text-sm text-slate-900">Status Integrasi</h3>
+        <div className="flex items-center justify-between text-sm py-2 border-b border-slate-100">
+          <span className="flex items-center gap-2 text-slate-600"><Wifi size={15} className="text-emerald-500" /> WA Gateway (WAHA)</span>
+          <span className="text-[11px] font-bold text-emerald-600">Connected</span>
+        </div>
+        <div className="flex items-center justify-between text-sm py-2 border-b border-slate-100">
+          <span className="flex items-center gap-2 text-slate-600"><Zap size={15} className="text-violet-500" /> n8n Automation</span>
+          <span className="text-[11px] font-bold text-emerald-600">Active</span>
+        </div>
+        <div className="flex items-center justify-between text-sm py-2">
+          <span className="flex items-center gap-2 text-slate-600"><LayoutDashboard size={15} className="text-indigo-500" /> Firestore Sync</span>
+          <span className="text-[11px] font-bold text-emerald-600">Live</span>
+        </div>
+      </div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col gap-2">
+        <h3 className="font-bold text-sm text-slate-900 mb-1">Jalan Pintas</h3>
+        <button onClick={onOpenMembers} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700"><span className="flex items-center gap-2"><Users size={15} /> Kelola data anggota</span><ArrowUpRight size={14} className="text-slate-300" /></button>
+        <button onClick={onOpenMigrasi} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700"><span className="flex items-center gap-2"><Wand2 size={15} /> Rapikan kategori kegiatan lama</span><ArrowUpRight size={14} className="text-slate-300" /></button>
+        <button onClick={onOpenInfo} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700"><span className="flex items-center gap-2"><Info size={15} /> Cara kerja sistem</span><ArrowUpRight size={14} className="text-slate-300" /></button>
+      </div>
+    </div>
+  );
+}
+
 export default function PapanKegiatan() {
   const [ready, setReady] = useState(false);
   const [members, setMembers] = useState([]);
   const [activities, setActivities] = useState([]);
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
+  const [weekCursor, setWeekCursor] = useState(() => { const t = new Date(); const day = (t.getDay() + 6) % 7; const start = new Date(t); start.setDate(t.getDate() - day); return start; });
+  const [plannerView, setPlannerView] = useState("weekly");
   const [dayModal, setDayModal] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [showMembers, setShowMembers] = useState(false);
@@ -284,12 +584,16 @@ export default function PapanKegiatan() {
   const [showMigrasi, setShowMigrasi] = useState(false);
   const [toast, setToast] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  // Tab utama halaman: "kalender" (tampilan lama, default), "galeriBranch" (galeri foto laporan
+  // RGE per branch dari grup WA), "rekapKPI" (rekap target vs pencapaian KPI per RGE per bulan).
   const [mainTab, setMainTab] = useState("dashboard");
-  const [memberFilter, setMemberFilter] = useState("all");
-  const [search, setSearch] = useState("");
-
+  // rgeReports: ditulis oleh n8n (node "Simpan ke Firestore - rgeReports") tiap kali ada laporan
+  // posm/event/dtu/desa/school/fwa/nota dari grup RGE WhatsApp. kpiTargets: target bulanan per RGE,
+  // diisi manual lewat form di tab "Rekap KPI".
   const [rgeReports, setRgeReports] = useState([]);
   const [kpiTargets, setKpiTargets] = useState([]);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const importInputRef = useRef(null);
 
   function notify(msg) { setToast(msg); setTimeout(() => setToast(null), 2600); }
 
@@ -317,20 +621,29 @@ export default function PapanKegiatan() {
     return () => { unsubMembers(); unsubActivities(); unsubReports(); unsubTargets(); };
   }, []);
 
+  // Simpan/update target KPI bulanan 1 RGE. Doc id dibuat deterministik (memberId_bulan) supaya
+  // simpan ulang di bulan yang sama otomatis nge-update, bukan bikin dokumen baru.
   async function saveKpiTarget(memberId, monthKey, patch) {
     const id = `${memberId}_${monthKey}`;
     try {
       await setDoc(doc(db, "kpiTargets", id), { memberId, monthKey, ...patch }, { merge: true });
       notify("Target KPI tersimpan.");
-    } catch (e) { console.error(e); notify("Gagal menyimpan target KPI."); }
+    } catch (e) {
+      console.error(e);
+      notify("Gagal menyimpan target KPI.");
+    }
   }
 
   async function addMember(member) {
+    // Document ID Firestore dibuat dari nomor WA (bukan auto-generate) -- supaya konsisten dengan
+    // sync otomatis Sheet MEMBER -> Firestore dari n8n (docId = nomor WA juga). Kalau ID-nya beda,
+    // member yang sama bisa kesimpan 2x (dobel) di web.
     const phone = String(member.phone || "").replace(/\D/g, "");
     try {
       if (phone) await setDoc(doc(db, "members", phone), member);
       else await addDoc(collection(db, "members"), member);
-    } catch (e) { console.error(e); notify("Gagal menyimpan anggota baru."); }
+    }
+    catch (e) { console.error(e); notify("Gagal menyimpan anggota baru."); }
   }
   async function updateMember(id, patch) {
     try { await updateDoc(doc(db, "members", id), patch); }
@@ -340,24 +653,59 @@ export default function PapanKegiatan() {
     try { await deleteDoc(doc(db, "members", id)); }
     catch (e) { console.error(e); notify("Gagal menghapus anggota."); }
   }
-  async function addActivity(activity) {
+  // Import Excel (Quick Action di sidebar): upload file .xlsx berisi kolom Nama / Nomor WA / Branch /
+  // Posisi -- kolom yang SAMA seperti sheet MEMBER yang dibaca n8n (lihat node "Siapkan Data Member
+  // utk Firestore"). docId dibuat dari nomor WA supaya konsisten dengan sync otomatis dari n8n
+  // (upsert, bukan dobel data kalau file yang sama diimport ulang).
+  function triggerImportExcel() { importInputRef.current?.click(); }
+  async function handleImportExcelFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
     try {
-      await addDoc(collection(db, "activities"), {
-        ...activity,
-        jenisKegiatan: normalizeJenisKegiatan(activity.jenisKegiatan),
-        photos: activity.photos || []
-      });
-    } catch (e) { console.error(e); notify("Gagal menyimpan kegiatan baru."); }
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const norm = (obj, keys) => {
+        for (const k of Object.keys(obj)) {
+          if (keys.some((x) => k.trim().toLowerCase() === x)) return obj[k];
+        }
+        return "";
+      };
+      let ok = 0, skipped = 0;
+      for (const row of rows) {
+        const phone = String(norm(row, ["nomor wa", "phone", "no wa", "whatsapp"])).replace(/\D/g, "");
+        if (!phone) { skipped++; continue; }
+        await addMember({
+          name: norm(row, ["nama", "name"]),
+          phone,
+          branch: norm(row, ["branch"]),
+          posisi: norm(row, ["posisi", "position"]) || "RGE",
+        });
+        ok++;
+      }
+      notify(`Import selesai: ${ok} anggota tersimpan${skipped ? `, ${skipped} baris dilewati (nomor WA kosong)` : ""}.`);
+    } catch (err) {
+      console.error("Gagal import Excel:", err);
+      notify("Gagal membaca file Excel. Pastikan formatnya .xlsx dengan kolom Nama/Nomor WA/Branch/Posisi.");
+    }
+  }
+
+  async function addActivity(activity) {
+    try { await addDoc(collection(db, "activities"), { ...activity, jenisKegiatan: normalizeJenisKegiatan(activity.jenisKegiatan), photos: activity.photos || [] }); }
+    catch (e) { console.error(e); notify("Gagal menyimpan kegiatan baru."); }
   }
   async function updateActivity(id, patch) {
     try {
-      const finalPatch = patch.jenisKegiatan !== undefined
-        ? { ...patch, jenisKegiatan: normalizeJenisKegiatan(patch.jenisKegiatan) }
-        : patch;
+      const finalPatch = patch.jenisKegiatan !== undefined ? { ...patch, jenisKegiatan: normalizeJenisKegiatan(patch.jenisKegiatan) } : patch;
       await updateDoc(doc(db, "activities", id), finalPatch);
-    } catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
+    }
+    catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
   }
   async function deleteActivity(id) {
+    // Beberapa kegiatan lama (mis. yang masuk lewat n8n/WhatsApp) kadang punya id dengan spasi
+    // nyangkut di depan/belakang — trim dulu supaya path Firestore-nya tepat sasaran.
     const cleanId = String(id || "").trim();
     if (!cleanId) { notify("Gagal menghapus: ID kegiatan tidak valid/kosong."); return false; }
     try {
@@ -365,7 +713,13 @@ export default function PapanKegiatan() {
       return true;
     } catch (e) {
       console.error("Gagal menghapus kegiatan", cleanId, e);
+      // Dokumen sudah tidak ada di Firestore (mis. sudah kehapus dari sisi lain) — anggap sukses
+      // saja daripada bikin kegiatan itu nyangkut selamanya di kalender.
       if (e?.code === "not-found") return true;
+      // Kalau masih gagal, ini HAMPIR SELALU soal Firestore Security Rules yang menolak operasi
+      // "delete" pada koleksi "activities" (bukan bug di tombolnya). Kode error asli ditampilkan
+      // di toast supaya langsung ketahuan: kalau munculnya "permission-denied", perbaiki rules-nya,
+      // bukan kode web ini.
       notify(`Gagal menghapus (${e?.code || "error"}): ${e?.message || "coba lagi."}`);
       return false;
     }
@@ -380,9 +734,15 @@ export default function PapanKegiatan() {
       if (!act) return;
       const remaining = (act.photos || []).filter((p) => p.id !== photoId);
       const patch = { photos: remaining };
+      // Kalau foto terakhir dihapus dan kegiatan sebelumnya sudah "selesai", buka lagi otomatis jadi
+      // "rencana" — supaya kegiatan ini kembali dianggap terbuka dan foto baru yang dikirim RGE lewat
+      // WhatsApp bisa tercocokkan ke kegiatan ini (lihat node "Cocokkan Kegiatan by Tanggal Foto" di n8n,
+      // yang hanya mencari di antara kegiatan berstatus "rencana").
       if (remaining.length === 0 && act.status === "selesai") patch.status = "rencana";
       await updateDoc(doc(db, "activities", activityId), patch);
-      notify(remaining.length === 0 ? 'Foto dihapus. Kegiatan dibuka lagi jadi "Rencana".' : "Foto dihapus dari dokumentasi.");
+      notify(remaining.length === 0
+        ? 'Foto dihapus. Kegiatan dibuka lagi jadi "Rencana" — minta RGE kirim ulang foto yang relevan lewat WhatsApp.'
+        : "Foto dihapus dari dokumentasi.");
     } catch (e) {
       console.error("Gagal menghapus foto", e);
       notify(`Gagal menghapus foto (${e?.code || "error"}): ${e?.message || "coba lagi."}`);
@@ -390,6 +750,8 @@ export default function PapanKegiatan() {
   }
 
   const memberById = (id) => members.find((m) => m.id === id);
+
+  // ---------- Calendar grid computation ----------
   const first = new Date(cursor.y, cursor.m, 1);
   const startOffset = (first.getDay() + 6) % 7;
   const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
@@ -398,332 +760,259 @@ export default function PapanKegiatan() {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const filteredActivities = activities.filter((a) => {
-    const byMember = memberFilter === "all" || a.assignedMemberId === memberFilter;
-    const q = search.trim().toLowerCase();
-    const bySearch = !q || [a.title, a.description, a.jenisKegiatan, a.memberName].some((v) => String(v || "").toLowerCase().includes(q));
-    return byMember && bySearch;
-  });
-
   const activitiesByDate = {};
-  filteredActivities.forEach((a) => {
-    const withMember = { ...a, _member: memberById(a.assignedMemberId), _posisi: memberById(a.assignedMemberId)?.posisi };
-    (activitiesByDate[a.date] ||= []).push(withMember);
+  activities.forEach((a) => {
+    const withPosisi = { ...a, _posisi: memberById(a.assignedMemberId)?.posisi };
+    (activitiesByDate[a.date] ||= []).push(withPosisi);
   });
   Object.values(activitiesByDate).forEach((list) => list.sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99")));
 
-  const todayActs = filteredActivities.filter((a) => a.date === todayKey()).sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
-  const overdueActs = filteredActivities.filter((a) => activityState(a).key === "overdue");
-  const doneActs = filteredActivities.filter((a) => a.status === "selesai");
-  const activeActs = filteredActivities.filter((a) => activityState(a).key === "today" && a.status !== "selesai");
-  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
-  const monthActs = filteredActivities.filter((a) => a.date?.startsWith(monthPrefix));
-  const progressAvg = filteredActivities.length
-    ? Math.round(filteredActivities.reduce((s, a) => s + activityProgress(a), 0) / filteredActivities.length)
-    : 0;
+  const todaysActivities = activitiesByDate[todayKey()] || [];
 
-  if (!ready) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400 font-medium">Memuat Team Activity Center…</div>;
-
-  const navItems = [
-    { k: "dashboard", label: "Dashboard", icon: Home },
-    { k: "planner", label: "Planner", icon: CalendarIcon },
-    { k: "reports", label: "Reports", icon: MessageCircle },
-    { k: "performance", label: "Performance", icon: TrendingUp },
-    { k: "team", label: "Team", icon: Users },
-    { k: "galeriBranch", label: "Galeri", icon: LayoutGrid },
-  ];
-
-  function goTab(tab) {
-    setMainTab(tab);
-    if (tab === "planner") {
-      const t = new Date();
-      setCursor({ y: t.getFullYear(), m: t.getMonth() });
+  const notifCount = activities.reduce((n, a) => {
+    const st = statusOf(a);
+    if (st === "overdue") return n + 1;
+    if (st === "menunggu_report") {
+      const rep = reportInfoForActivity(a, memberById(a.assignedMemberId), rgeReports);
+      if (!rep.received) return n + 1;
     }
+    return n;
+  }, 0);
+
+  if (!ready) {
+    return <div className="min-h-screen flex items-center justify-center text-slate-400 font-medium">Memuat papan kegiatan…</div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="flex min-h-screen">
-        {/* Sidebar */}
-        <aside className="hidden md:flex w-[232px] flex-col bg-slate-950 text-white sticky top-0 h-screen shrink-0">
-          <div className="px-5 py-5 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-900/30">
-                <Activity size={20} />
+    <div className="min-h-screen flex" style={{ background: COLORS.bg }}>
+      <input ref={importInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcelFile} />
+
+      <SidebarNav
+        mainTab={mainTab}
+        plannerView={plannerView}
+        onNavigate={(tab, pv) => { setMainTab(tab); if (pv) setPlannerView(pv); }}
+        notifCount={notifCount}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
+        onAddActivity={() => setShowAddActivity(todayKey())}
+        onImportExcel={triggerImportExcel}
+        onKirimReportWA={() => setShowSim(true)}
+      />
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <TopHeader
+          members={members}
+          activities={activities}
+          onOpenMenu={() => setMobileNavOpen(true)}
+          onOpenActivity={(id) => setDetailId(id)}
+          onOpenMembers={() => setShowMembers(true)}
+          notifCount={notifCount}
+          onOpenNotif={() => setMainTab("notifikasi")}
+        />
+
+        <main className="flex-1 w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {mainTab === "dashboard" && (
+            <Dashboard
+              activities={activities} members={members} rgeReports={rgeReports} kpiTargets={kpiTargets}
+              weekCursor={weekCursor} setWeekCursor={setWeekCursor}
+              onOpenActivity={(id) => setDetailId(id)}
+              onAddActivity={(date) => setShowAddActivity(date)}
+              onGoFullSchedule={() => { setMainTab("kalender"); setPlannerView("weekly"); }}
+            />
+          )}
+
+          {mainTab === "team" && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-2xl font-black tracking-tight text-slate-900">Anggota Tim</h1>
+                  <p className="text-sm text-slate-500 mt-1">Ringkasan eksekusi RGE hari ini, dan kelola data anggota.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <GhostBtn onClick={() => setShowSim(true)}><Smartphone size={14} /> Simulasi WhatsApp</GhostBtn>
+                  <PrimaryBtn onClick={() => setShowMembers(true)}><Users size={15} /> Kelola Anggota</PrimaryBtn>
+                </div>
               </div>
+              <TeamOverview activities={activities} members={members} />
+            </div>
+          )}
+
+          {mainTab === "galeriBranch" && (
+            <div className="flex flex-col gap-4">
               <div>
-                <div className="font-bold tracking-tight">Team Activity</div>
-                <div className="text-[10px] text-slate-400">PLAN • REPORT • ACHIEVE</div>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900">Laporan & Rekap</h1>
+                <p className="text-sm text-slate-500 mt-1">Galeri foto laporan RGE per branch, dari grup WhatsApp.</p>
               </div>
+              <GaleriPerBranch members={members} rgeReports={rgeReports} />
             </div>
-          </div>
-          <div className="p-3 flex-1">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 px-3 mb-2">Workspace</div>
-            <div className="space-y-1">
-              {navItems.map(({ k, label, icon: Icon }) => (
-                <button key={k} onClick={() => goTab(k)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${mainTab === k ? "bg-indigo-500 text-white shadow-lg shadow-indigo-900/30" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
-                  <Icon size={17} /> {label}
-                </button>
-              ))}
+          )}
+
+          {mainTab === "rekapKPI" && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
+                <p className="text-sm text-slate-500 mt-1">Target vs pencapaian bulanan per RGE.</p>
+              </div>
+              <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} />
             </div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 px-3 mt-7 mb-2">Tools</div>
-            <div className="space-y-1">
-              <button onClick={() => setShowMembers(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:bg-white/5 hover:text-white"><Users size={17}/> Sheet Anggota</button>
-              <button onClick={() => setShowSim(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:bg-white/5 hover:text-white"><Smartphone size={17}/> Simulasi WhatsApp</button>
-              <button onClick={() => setShowMigrasi(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:bg-white/5 hover:text-white"><Wand2 size={17}/> Rapikan Kategori</button>
-              <button onClick={() => setInfoOpen(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-400 hover:bg-white/5 hover:text-white"><Info size={17}/> Cara Kerja</button>
-            </div>
-          </div>
-          <div className="p-4 border-t border-white/10">
-            <div className="flex items-center gap-2 text-[11px] text-emerald-400"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"/> Sistem Online</div>
-            <div className="text-[10px] text-slate-500 mt-1">Firestore realtime</div>
-          </div>
-        </aside>
+          )}
 
-        <main className="flex-1 min-w-0">
-          {/* Topbar */}
-          <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
-            <div className="px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
-              <button className="md:hidden p-2 rounded-lg hover:bg-slate-100" onClick={() => goTab("dashboard")}><Menu size={20}/></button>
-              <div className="md:hidden font-bold text-slate-900">Team Activity</div>
-              <div className="hidden sm:flex relative max-w-md flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                <input value={search} onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Cari kegiatan, nama anggota, atau lokasi…"
-                  className="w-full h-9 pl-9 pr-3 rounded-xl bg-slate-100 border border-transparent focus:border-indigo-300 focus:bg-white outline-none text-sm"/>
-              </div>
-              <div className="ml-auto flex items-center gap-2">
-                <button className="relative p-2 rounded-xl hover:bg-slate-100 text-slate-500">
-                  <Bell size={18}/>{overdueActs.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] flex items-center justify-center">{Math.min(overdueActs.length,99)}</span>}
-                </button>
-                <button onClick={() => setShowMembers(true)} className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-slate-100">
-                  <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">S</span>
-                  <span className="hidden lg:block text-left"><b className="block text-xs">Supervisor</b><span className="text-[10px] text-slate-400">Admin</span></span>
-                  <ChevronDown size={14} className="text-slate-400"/>
-                </button>
-              </div>
-            </div>
-          </header>
+          {mainTab === "kalender" && (
+            plannerView === "weekly" ? (
+              <WeeklyPlanner activities={activities} members={members} rgeReports={rgeReports} weekCursor={weekCursor} setWeekCursor={setWeekCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
+            ) : (
+              <MonthlyPlanner activities={activities} members={members} cursor={cursor} setCursor={setCursor} onOpenActivity={(id) => setDetailId(id)} onAddActivity={(date) => setShowAddActivity(date)} onViewChange={setPlannerView} />
+            )
+          )}
 
-          <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto">
-            {/* Mobile nav */}
-            <div className="md:hidden flex gap-1 overflow-x-auto mb-5 pb-1">
-              {navItems.map(({ k, label, icon: Icon }) => (
-                <button key={k} onClick={() => goTab(k)} className={`shrink-0 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${mainTab === k ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-600"}`}><Icon size={14}/>{label}</button>
-              ))}
-            </div>
+          {mainTab === "notifikasi" && (
+            <NotifikasiPage activities={activities} members={members} rgeReports={rgeReports} onOpen={(id) => setDetailId(id)} />
+          )}
 
-            {mainTab === "dashboard" && (
-              <DashboardView
-                members={members}
-                activities={filteredActivities}
-                todayActs={todayActs}
-                overdueActs={overdueActs}
-                doneActs={doneActs}
-                activeActs={activeActs}
-                progressAvg={progressAvg}
-                onOpen={(id) => setDetailId(id)}
-                onPlanner={() => goTab("planner")}
-                onAdd={() => setShowAddActivity(todayKey())}
-              />
-            )}
-
-            {mainTab === "planner" && (
-              <PlannerView
-                cursor={cursor}
-                setCursor={setCursor}
-                cells={cells}
-                activitiesByDate={activitiesByDate}
-                members={members}
-                memberFilter={memberFilter}
-                setMemberFilter={setMemberFilter}
-                onOpenDay={(key) => setDayModal(key)}
-                onAdd={() => setShowAddActivity(todayKey())}
-                onOpen={(id) => setDetailId(id)}
-                overdueActs={overdueActs}
-              />
-            )}
-
-            {mainTab === "reports" && (
-              <div className="space-y-6">
-                <PageHeading icon={<MessageCircle size={20}/>} title="Reports" subtitle="Dokumentasi dan laporan kegiatan yang masuk dari WhatsApp maupun web." />
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                  <GaleriFoto activities={filteredActivities} members={members} cursor={cursor} onOpen={(id) => setDetailId(id)} />
-                </div>
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                  <GaleriPerBranch members={members} rgeReports={rgeReports} />
-                </div>
-              </div>
-            )}
-
-            {mainTab === "performance" && (
-              <div className="space-y-6">
-                <PageHeading icon={<TrendingUp size={20}/>} title="Performance" subtitle="Pantau aktivitas, pencapaian, dan KPI team." right={<GhostBtn onClick={() => window.print()}><Download size={14}/> Print</GhostBtn>} />
-                <PerformanceOverview members={members} activities={activities} cursor={cursor} />
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                  <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} />
-                </div>
-              </div>
-            )}
-
-            {mainTab === "team" && (
-              <TeamView members={members} activities={activities} onOpen={(id) => setDetailId(id)} onManage={() => setShowMembers(true)} />
-            )}
-
-            {mainTab === "galeriBranch" && (
-              <div className="space-y-6">
-                <PageHeading icon={<LayoutGrid size={20}/>} title="Galeri Branch" subtitle="Dokumentasi laporan RGE berdasarkan branch." />
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                  <GaleriPerBranch members={members} rgeReports={rgeReports} />
-                </div>
-              </div>
-            )}
-          </div>
+          {mainTab === "pengaturan" && (
+            <PengaturanPage onOpenInfo={() => setInfoOpen(true)} onOpenMembers={() => setShowMembers(true)} onOpenMigrasi={() => setShowMigrasi(true)} />
+          )}
         </main>
       </div>
 
-      {toast && <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-xl z-[100] flex items-center gap-2"><Check size={15}/>{toast}</div>}
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg z-[100] flex items-center gap-2">
+          <Check size={15} /> {toast}
+        </div>
+      )}
 
+      {/* Day modal */}
       {dayModal && (
-        <Modal onClose={() => setDayModal(null)} width={500}>
+        <Modal onClose={() => setDayModal(null)} width={440}>
           <ModalHeader title={new Date(dayModal + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} onClose={() => setDayModal(null)} />
           <div className="p-5 flex flex-col gap-3">
-            {(activitiesByDate[dayModal] || []).length === 0 && <p className="text-sm text-slate-400">Belum ada kegiatan pada tanggal ini.</p>}
+            {(activitiesByDate[dayModal] || []).length === 0 && (
+              <p className="text-slate-400 text-sm">Belum ada kegiatan pada tanggal ini.</p>
+            )}
             {(activitiesByDate[dayModal] || []).map((a) => {
               const mem = memberById(a.assignedMemberId);
-              const state = activityState(a);
-              return <button key={a.id} onClick={() => { setDetailId(a.id); setDayModal(null); }} className="text-left border border-slate-200 rounded-xl p-3 hover:border-indigo-300 hover:bg-indigo-50/40 transition">
-                <div className="flex items-center gap-2"><span className="w-2 h-8 rounded-full" style={{background: memberColor(mem)}}/><div className="min-w-0 flex-1"><div className="text-xs text-slate-400">{a.time || "—"} · {mem?.name || "Belum ditugaskan"}</div><div className="font-semibold text-sm truncate">{a.title}</div></div><StatusPill state={state}/></div>
-                {a.photos?.length > 0 && <div className="text-[11px] text-slate-400 mt-2 flex items-center gap-1"><Camera size={12}/>{a.photos.length} dokumentasi</div>}
-              </button>;
+              return (
+                <div key={a.id} onClick={() => { setDetailId(a.id); setDayModal(null); }} className="border border-slate-200 rounded-xl p-3 cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/40 transition">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <StatusMarker status={a.status} />
+                      {a.time && <span className="font-mono text-xs text-slate-400 flex-shrink-0">{a.time}</span>}
+                      <span className="font-semibold text-sm text-slate-900 truncate">{a.title}</span>
+                    </span>
+                    <StatusBadge status={a.status} />
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">{mem ? `${mem.name} · ${mem.posisi}` : "Belum ditugaskan"}</div>
+                  {a.photos?.length > 0 && <div className="text-xs text-slate-500 mt-1 flex items-center gap-1"><Camera size={12} />{a.photos.length} foto</div>}
+                </div>
+              );
             })}
-            <PrimaryBtn onClick={() => { setShowAddActivity(dayModal); setDayModal(null); }}><Plus size={15}/> Tambah kegiatan</PrimaryBtn>
+            <PrimaryBtn onClick={() => { setShowAddActivity(dayModal); setDayModal(null); }}><Plus size={15} /> Tambah kegiatan</PrimaryBtn>
           </div>
         </Modal>
       )}
 
-      {showAddActivity && <AddActivityModal initialDate={showAddActivity} members={members} onClose={() => setShowAddActivity(false)} onSave={(a) => { addActivity({ ...a, status: "rencana", createdVia: "web" }); setShowAddActivity(false); notify("Kegiatan ditambahkan ke kalender."); }}/>}
-      {detailId && <ActivityDetailModal
-        activity={activities.find((a) => a.id === detailId)}
-        member={memberById(activities.find((a) => a.id === detailId)?.assignedMemberId)}
-        members={members}
-        onClose={() => setDetailId(null)}
-        onToggleStatus={(id, status) => updateActivity(id, { status })}
-        onReschedule={(id, date, time) => updateActivity(id, { date, time })}
-        onEdit={(id, patch) => { updateActivity(id, patch); notify("Kegiatan diperbarui."); }}
-        onDelete={async (id) => { const ok = await deleteActivity(id); if (ok) { setDetailId(null); notify("Kegiatan dihapus."); } }}
-        onAddPhoto={(photo) => addPhoto(detailId, photo)}
-        onRemovePhoto={removePhoto}
-      />}
-      {showMembers && <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} onEdit={updateMember}/>}
-      {showSim && <WhatsAppSimModal members={members} activities={activities} onClose={() => setShowSim(false)} onNewSchedule={(a) => { addActivity(a); notify(`Jadwal baru diterima dari ${memberById(a.assignedMemberId)?.name} via WhatsApp.`); }} onUploadResult={(activityId, photo) => { addPhoto(activityId, photo); notify("Foto hasil kegiatan diterima via WhatsApp."); }}/>}
-      {showMigrasi && <MigrasiKategoriModal activities={activities} onClose={() => setShowMigrasi(false)} onApply={updateActivity}/>}
-      {infoOpen && <Modal onClose={() => setInfoOpen(false)} width={500}><ModalHeader title="Cara kerja sistem" onClose={() => setInfoOpen(false)} icon={<Info size={18}/>}/><div className="p-5 flex flex-col gap-3 text-sm text-slate-700 leading-relaxed"><p>Kalender ini terhubung <b>langsung ke Firestore</b> dan diperbarui secara real-time.</p><ol className="pl-4 flex flex-col gap-1 list-decimal"><li>Anggota kirim pesan/foto ke nomor WhatsApp tim.</li><li>WAHA menerima pesan lewat webhook dan mengirim ke n8n.</li><li>n8n mencocokkan nomor pengirim dengan data anggota.</li><li>n8n memproses format pesan dan menyimpan hasil ke Firestore.</li><li>Web otomatis menampilkan perubahan tanpa refresh.</li></ol></div></Modal>}
+      {showAddActivity && (
+        <AddActivityModal
+          initialDate={showAddActivity}
+          members={members}
+          onClose={() => setShowAddActivity(false)}
+          onSave={(a) => { addActivity({ ...a, status: "rencana", createdVia: "web" }); setShowAddActivity(false); notify("Kegiatan ditambahkan ke kalender."); }}
+        />
+      )}
+
+      {detailId && (
+        <ActivityDetailModal
+          activity={activities.find((a) => a.id === detailId)}
+          member={memberById(activities.find((a) => a.id === detailId)?.assignedMemberId)}
+          members={members}
+          rgeReports={rgeReports}
+          onClose={() => setDetailId(null)}
+          onToggleStatus={(id, status) => updateActivity(id, { status })}
+          onReschedule={(id, date, time) => updateActivity(id, { date, time })}
+          onEdit={(id, patch) => { updateActivity(id, patch); notify("Kegiatan diperbarui."); }}
+          onDelete={async (id) => { const ok = await deleteActivity(id); if (ok) { setDetailId(null); notify("Kegiatan dihapus."); } }}
+          onAddPhoto={(photo) => addPhoto(detailId, photo)}
+          onRemovePhoto={removePhoto}
+        />
+      )}
+
+      {showMembers && (
+        <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} onEdit={updateMember} />
+      )}
+
+      {showSim && (
+        <WhatsAppSimModal
+          members={members}
+          activities={activities}
+          onClose={() => setShowSim(false)}
+          onNewSchedule={(a) => { addActivity(a); notify(`Jadwal baru diterima dari ${memberById(a.assignedMemberId)?.name} via WhatsApp.`); }}
+          onUploadResult={(activityId, photo) => { addPhoto(activityId, photo); notify(`Foto hasil kegiatan diterima via WhatsApp.`); }}
+        />
+      )}
+
+      {showMigrasi && (
+        <MigrasiKategoriModal activities={activities} onClose={() => setShowMigrasi(false)} onApply={updateActivity} />
+      )}
+
+      {infoOpen && (
+        <Modal onClose={() => setInfoOpen(false)} width={480}>
+          <ModalHeader title="Cara kerja sistem" onClose={() => setInfoOpen(false)} icon={<Info size={18} />} />
+          <div className="p-5 flex flex-col gap-3 text-sm text-slate-700 leading-relaxed">
+            <p>Kalender ini terhubung <b>langsung ke Firestore</b> dan diperbarui secara real-time. Tombol "Simulasi WhatsApp" tersedia untuk uji coba cepat dari web, tapi kegiatan sungguhan biasanya masuk lewat WhatsApp tim.</p>
+            <p>Alur produksinya:</p>
+            <ol className="pl-4 flex flex-col gap-1 list-decimal">
+              <li>Anggota kirim pesan/foto ke nomor WhatsApp tim.</li>
+              <li>WAHA menerima pesan lewat <i>webhook</i> dan mengirim ke n8n.</li>
+              <li>n8n mencocokkan nomor pengirim dengan data anggota (nama + posisi).</li>
+              <li>n8n memproses format pesan (mis. "JADWAL", foto dokumentasi) dan menyimpan ke Firestore.</li>
+              <li>Web ini otomatis menampilkan perubahan itu tanpa perlu refresh.</li>
+            </ol>
+            <p className="text-slate-400">Data di papan ini dapat dilihat bersama oleh siapa pun yang membuka tautan web ini.</p>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
-
-function PageHeading({ icon, title, subtitle, right }) {
-  return <div className="flex items-end justify-between gap-3 flex-wrap">
-    <div><div className="flex items-center gap-2 text-indigo-600 mb-1">{icon}<span className="text-[11px] font-bold uppercase tracking-[0.14em]">Team Activity Center</span></div><h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{title}</h1><p className="text-sm text-slate-500 mt-1">{subtitle}</p></div>
-    {right}
-  </div>;
-}
-function StatusPill({ state }) {
-  return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold" style={{color:state.color, background:state.bg}}>{state.key==="overdue" ? <AlertTriangle size={11}/> : state.key==="selesai" ? <CheckCircle2 size={11}/> : state.key==="today" ? <Clock3 size={11}/> : <ListTodo size={11}/>} {state.label}</span>;
-}
-function StatCard({ icon, value, label, tone="indigo", sub }) {
-  const tones={indigo:["bg-indigo-50","text-indigo-600"], emerald:["bg-emerald-50","text-emerald-600"], blue:["bg-blue-50","text-blue-600"], rose:["bg-rose-50","text-rose-600"], amber:["bg-amber-50","text-amber-600"]};
-  const [bg,fg]=tones[tone]||tones.indigo;
-  return <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm"><div className="flex items-center justify-between"><div className={`w-10 h-10 rounded-xl ${bg} ${fg} flex items-center justify-center`}>{icon}</div>{sub&&<span className="text-[10px] text-slate-400">{sub}</span>}</div><div className="text-2xl font-bold mt-3">{value}</div><div className="text-xs text-slate-500 mt-0.5">{label}</div></div>;
-}
-function ActivityRow({ activity, members, onOpen }) {
-  const mem=members.find(m=>m.id===activity.assignedMemberId);
-  const state=activityState(activity), progress=activityProgress(activity), color=memberColor(mem);
-  return <button onClick={()=>onOpen(activity.id)} className="w-full text-left group p-3 rounded-xl hover:bg-slate-50 transition border-b border-slate-100 last:border-0">
-    <div className="flex gap-3">
-      <span className="w-1 rounded-full shrink-0" style={{background:color}}/>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2"><span className="text-[11px] font-semibold text-slate-400">{activity.time||"—"} · {mem?.name||activity.memberName||"Belum ditugaskan"}</span><StatusPill state={state}/></div>
-        <div className="font-semibold text-sm mt-1 truncate">{activity.title}</div>
-        <div className="flex items-center gap-2 mt-2"><div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${progress}%`,background:color}}/></div><span className="text-[10px] font-bold text-slate-400">{progress}%</span></div>
-        {activity.photos?.length>0&&<div className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1"><Camera size={10}/> {activity.photos.length} dokumentasi</div>}
-      </div>
-    </div>
-  </button>;
-}
-function DashboardView({ members, activities, todayActs, overdueActs, doneActs, activeActs, progressAvg, onOpen, onPlanner, onAdd }) {
-  const todayLabel=new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
-  const executor=members.filter(m=>String(m.posisi||"").toUpperCase()!=="BSM");
-  return <div className="space-y-6">
-    <PageHeading icon={<Home size={20}/>} title="Selamat Pagi, Supervisor! 👋" subtitle={`Ringkasan kegiatan team untuk ${todayLabel}.`} right={<div className="flex gap-2"><GhostBtn onClick={onPlanner}><CalendarIcon size={14}/> Planner</GhostBtn><PrimaryBtn onClick={onAdd}><Plus size={15}/> Tambah Kegiatan</PrimaryBtn></div>}/>
-    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-      <StatCard icon={<ListTodo size={20}/>} value={activities.length} label="Total Kegiatan" sub={`${progressAvg}% avg progress`} />
-      <StatCard icon={<Clock3 size={20}/>} value={activeActs.length} label="Sedang Berjalan" tone="blue"/>
-      <StatCard icon={<CheckCircle2 size={20}/>} value={doneActs.length} label="Selesai" tone="emerald"/>
-      <StatCard icon={<AlertTriangle size={20}/>} value={overdueActs.length} label="Overdue" tone="rose"/>
-    </div>
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-      <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100"><div><h2 className="font-bold">Aktivitas Hari Ini</h2><p className="text-xs text-slate-400 mt-0.5">{todayActs.length} kegiatan terjadwal</p></div><button onClick={onPlanner} className="text-xs font-semibold text-indigo-600">Lihat Planner →</button></div>
-        {todayActs.length?<div>{todayActs.map(a=><ActivityRow key={a.id} activity={a} members={members} onOpen={onOpen}/>)}</div>:<div className="p-8 text-center text-sm text-slate-400">Tidak ada kegiatan hari ini.</div>}
-      </div>
-      <div className="space-y-5">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"><h2 className="font-bold">Status Team Hari Ini</h2><div className="mt-4 flex items-center justify-center"><DonutStatus activities={todayActs}/></div><div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">{[["Selesai","#059669"],["Berjalan","#2563EB"],["Rencana","#94A3B8"],["Overdue","#DC2626"]].map(([l,c])=><div key={l} className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{background:c}}/>{l}<b className="ml-auto">{todayActs.filter(a=>activityState(a).key===({Selesai:"selesai",Berjalan:"today",Rencana:"rencana",Overdue:"overdue"}[l])).length}</b></div>)}</div></div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"><div className="flex justify-between"><h2 className="font-bold">Performa Anggota</h2><span className="text-[10px] text-slate-400">progress</span></div><div className="mt-3 space-y-3">{executor.slice(0,8).map(m=>{const mine=activities.filter(a=>a.assignedMemberId===m.id), p=mine.length?Math.round(mine.reduce((s,a)=>s+activityProgress(a),0)/mine.length):0;return <div key={m.id}><div className="flex justify-between text-xs mb-1"><span className="font-medium">{m.name}</span><span className="text-slate-400">{p}%</span></div><div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${p}%`,background:memberColor(m)}}/></div></div>})}</div></div>
-      </div>
-    </div>
-    {overdueActs.length>0&&<div className="bg-rose-50 border border-rose-200 rounded-2xl overflow-hidden"><div className="px-5 py-3 flex items-center gap-2 text-rose-700 font-bold text-sm"><AlertTriangle size={16}/> Needs Attention · {overdueActs.length} kegiatan terlambat</div><div className="bg-white/70">{overdueActs.slice(0,5).map(a=><ActivityRow key={a.id} activity={a} members={members} onOpen={onOpen}/>)}</div></div>}
-  </div>;
-}
-function DonutStatus({activities}) {
-  const counts=[activities.filter(a=>a.status==="selesai").length,activities.filter(a=>activityState(a).key==="today"&&a.status!=="selesai").length,activities.filter(a=>activityState(a).key==="rencana").length,activities.filter(a=>activityState(a).key==="overdue").length];
-  const total=counts.reduce((a,b)=>a+b,0)||1; const colors=["#059669","#2563EB","#94A3B8","#DC2626"]; let offset=0;
-  const stops=counts.map((n,i)=>{const s=offset;offset+=(n/total)*360;return `${colors[i]} ${s}deg ${offset}deg`;}).join(", ");
-  return <div className="w-28 h-28 rounded-full relative" style={{background:`conic-gradient(${stops})`}}><div className="absolute inset-3 bg-white rounded-full flex flex-col items-center justify-center"><b className="text-xl">{total===1&&counts.every(x=>x===0)?"0":counts.reduce((a,b)=>a+b,0)}</b><span className="text-[9px] text-slate-400">kegiatan</span></div></div>;
-}
-function PlannerView({cursor,setCursor,cells,activitiesByDate,members,memberFilter,setMemberFilter,onOpenDay,onAdd,onOpen,overdueActs}) {
+// ---------- Weekly Planner: operational timeline untuk seluruh tim ----------
+function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCursor, onOpenActivity, onAddActivity, onViewChange }) {
+  const [memberFilter, setMemberFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const weekStart = new Date(weekCursor); weekStart.setHours(0,0,0,0);
+  const days = Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);return d;});
+  const weekKeys=days.map(d=>dateKey(d.getFullYear(),d.getMonth(),d.getDate())); const today=todayKey();
+  const teamMembers=members.filter(m=>(m.posisi||"RGE")==="RGE"); const visibleMembers=teamMembers.length?teamMembers:members;
+  const memberMap=Object.fromEntries(members.map(m=>[m.id,m]));
+  const filtered=activities.filter(a=>{const mem=memberMap[a.assignedMemberId];if(!weekKeys.includes(a.date))return false;if(memberFilter!=="all"&&a.assignedMemberId!==memberFilter)return false;const st=statusOf(a);if(statusFilter!=="all"&&st!==statusFilter)return false;if(typeFilter!=="all"&&normalizeJenisKegiatan(a.jenisKegiatan)!==typeFilter)return false;if(query.trim()){const hay=`${a.title||""} ${a.location||""} ${mem?.name||""} ${mem?.branch||""}`.toLowerCase();if(!hay.includes(query.trim().toLowerCase()))return false;}return true;});
+  const byMemberDay=(id,key)=>filtered.filter(a=>a.assignedMemberId===id&&a.date===key).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
+  const weekActivities=activities.filter(a=>weekKeys.includes(a.date)); const weekDone=weekActivities.filter(a=>statusOf(a)==="selesai").length; const weekPending=weekActivities.filter(a=>["menunggu_report","overdue"].includes(statusOf(a))).length; const weekTotal=weekActivities.length; const completion=weekTotal?Math.round(weekDone/weekTotal*100):0;
+  const moveWeek=offset=>{const d=new Date(weekStart);d.setDate(d.getDate()+offset*7);setWeekCursor(d)}; const goToday=()=>{const t=new Date();const day=(t.getDay()+6)%7;t.setDate(t.getDate()-day);setWeekCursor(t)};
+  const monthLabel=days[0].getMonth()===days[6].getMonth()?`${BULAN[days[0].getMonth()]} ${days[0].getFullYear()}`:`${BULAN[days[0].getMonth()]} – ${BULAN[days[6].getMonth()]} ${days[6].getFullYear()}`;
+  const statusOptions=[["all","Semua status"],["belum_mulai","Belum mulai"],["hari_ini","Hari ini"],["berjalan","Sedang berjalan"],["menunggu_report","Menunggu report"],["selesai","Selesai"],["overdue","Overdue"]];
   return <div className="space-y-5">
-    <PageHeading icon={<CalendarIcon size={20}/>} title="Planner" subtitle="Kelola jadwal kegiatan team dan pantau statusnya." right={<div className="flex gap-2"><GhostBtn onClick={()=>{const t=new Date();setCursor({y:t.getFullYear(),m:t.getMonth()})}}>Hari ini</GhostBtn><PrimaryBtn onClick={onAdd}><Plus size={15}/> Tambah Kegiatan</PrimaryBtn></div>}/>
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        <button onClick={()=>setMemberFilter("all")} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border ${memberFilter==="all"?"bg-slate-900 text-white border-slate-900":"border-slate-200 text-slate-600"}`}>Semua</button>
-        {members.filter(m=>String(m.posisi||"").toUpperCase()!=="BSM").map((m)=><button key={m.id} onClick={()=>setMemberFilter(m.id)} className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 ${memberFilter===m.id?"text-white border-transparent":"bg-white border-slate-200 text-slate-600"}`} style={memberFilter===m.id?{background:memberColor(m)}:{}}><span className="w-2 h-2 rounded-full" style={{background:memberColor(m)}}/>{m.name}</button>)}
-      </div>
-    </div>
-    <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-        <div className="flex items-center justify-between mb-5"><div className="flex items-center gap-2"><IconBtn onClick={()=>setCursor(c=>c.m===0?{y:c.y-1,m:11}:{y:c.y,m:c.m-1})}><ChevronLeft size={18}/></IconBtn><h2 className="text-lg font-bold min-w-[170px] text-center">{BULAN[cursor.m]} {cursor.y}</h2><IconBtn onClick={()=>setCursor(c=>c.m===11?{y:c.y+1,m:0}:{y:c.y,m:c.m+1})}><ChevronRight size={18}/></IconBtn></div><div className="hidden sm:flex items-center gap-3 text-[10px] text-slate-400"><span>🟢 Selesai</span><span>🔵 Hari Ini</span><span>🔴 Overdue</span></div></div>
-        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-400 mb-2">{HARI.map(h=><div key={h}>{h}</div>)}</div>
-        <div className="grid grid-cols-7 gap-1">
-          {cells.map((d,i)=>{if(d===null)return <div key={i} className="min-h-[105px] bg-slate-50/50 rounded-lg"/>; const key=dateKey(cursor.y,cursor.m,d), acts=activitiesByDate[key]||[], today=key===todayKey(), overdue=acts.some(a=>activityState(a).key==="overdue"); return <button key={i} onClick={()=>onOpenDay(key)} className={`min-h-[105px] rounded-xl border p-1.5 text-left transition hover:shadow-sm ${today?"border-indigo-400 bg-indigo-50/40":"border-slate-100 bg-white hover:border-slate-200"}`}>
-            <div className="flex justify-between items-center"><span className={`text-xs font-bold ${today?"text-indigo-700":"text-slate-600"}`}>{d}</span>{overdue&&<AlertTriangle size={11} className="text-rose-500"/>}</div>
-            <div className="mt-1 space-y-1 overflow-hidden">{acts.slice(0,3).map(a=>{const mem=members.find(m=>m.id===a.assignedMemberId), state=activityState(a);return <div key={a.id} onClick={(e)=>{e.stopPropagation();onOpen(a.id)}} className="rounded-md px-1.5 py-1 text-[9px] font-semibold truncate border-l-2" style={{background:state.bg,color:state.color,borderLeftColor:memberColor(mem)}}>{a.time&&<span className="mr-1">{a.time}</span>}{a.title}</div>})}{acts.length>3&&<div className="text-[9px] text-slate-400 pl-1">+{acts.length-3} lagi</div>}</div>
-          </button>})}
-        </div>
-      </div>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-        <div className="flex items-center justify-between"><div><h3 className="font-bold">Detail Hari Ini</h3><p className="text-[10px] text-slate-400">{new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long"})}</p></div><Clock3 size={17} className="text-indigo-500"/></div>
-        <div className="mt-4 space-y-1">{(activitiesByDate[todayKey()]||[]).map(a=><ActivityRow key={a.id} activity={a} members={members} onOpen={onOpen}/>)}</div>
-        {overdueActs.length>0&&<div className="mt-4 pt-4 border-t border-slate-100"><div className="text-xs font-bold text-rose-600 mb-2">⚠ Kegiatan Terlambat</div>{overdueActs.slice(0,4).map(a=><button key={a.id} onClick={()=>onOpen(a.id)} className="w-full text-left text-[11px] py-2 border-b border-slate-100"><span className="font-semibold">{memberBySafe(members,a)?.name||"—"}</span> · {a.title}<span className="block text-rose-500">{a.date} · belum selesai</span></button>)}</div>}
-      </div>
-    </div>
+    <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4"><div><div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-indigo-500"/><span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-indigo-600">Team Operations</span></div><h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Weekly Planner</h1><p className="text-sm text-slate-500 mt-1">Pantau 18 anggota dalam satu timeline — jadwal, eksekusi, dan report WA.</p></div><div className="flex items-center gap-2"><button onClick={() => onViewChange("monthly")} className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600">Kalender Bulanan</button><GhostBtn onClick={goToday}>Hari ini</GhostBtn><IconBtn onClick={()=>moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={18}/></IconBtn><IconBtn onClick={()=>moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={18}/></IconBtn></div></div>
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[["Total kegiatan",weekTotal,"Minggu ini","text-slate-900","bg-slate-100"],["Selesai",weekDone,`${completion}% completion`,"text-emerald-600","bg-emerald-50"],["Perlu perhatian",weekPending,"Overdue + report","text-rose-600","bg-rose-50"],["Tim aktif",new Set(weekActivities.map(a=>a.assignedMemberId).filter(Boolean)).size,`${visibleMembers.length} anggota terdaftar`,"text-indigo-600","bg-indigo-50"]].map(([label,value,sub,text,bg])=><div key={label} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className={`w-8 h-8 rounded-xl ${bg} flex items-center justify-center mb-3`}><span className={`font-black ${text}`}>•</span></div><div className={`text-2xl font-black ${text}`}>{value}</div><div className="text-xs font-bold text-slate-700 mt-0.5">{label}</div><div className="text-[10px] text-slate-400 mt-1">{sub}</div></div>)}</div>
+    <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden"><div className="px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/70"><div><div className="font-extrabold text-slate-900">{monthLabel}</div><div className="text-[10px] text-slate-400 font-semibold">{weekKeys[0]} — {weekKeys[6]}</div></div><div className="flex items-center gap-3 text-[10px] font-bold text-slate-400"><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-500"/> Berjalan</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-rose-500"/> Perhatian</span></div></div>
+      <div className="overflow-x-auto"><div className="min-w-[1180px]"><div className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-200 bg-white sticky top-0 z-10"><div className="p-3 text-[10px] font-black uppercase tracking-wider text-slate-400">Anggota Tim</div>{days.map((d,i)=>{const key=weekKeys[i];const isToday=key===today;const count=weekActivities.filter(a=>a.date===key).length;return <div key={key} className={`p-2.5 border-l border-slate-100 ${isToday?"bg-indigo-50":""}`}><div className={`text-[10px] font-black uppercase ${isToday?"text-indigo-600":"text-slate-400"}`}>{HARI[i]}</div><div className={`text-base font-black ${isToday?"text-indigo-700":"text-slate-800"}`}>{d.getDate()}</div><div className="text-[9px] text-slate-400">{count} kegiatan</div></div>})}</div>
+      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key)} className="w-full h-7 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center justify-center"><Plus size={13}/></button></div>})}</div>)}
+      {visibleMembers.length===0&&<div className="p-10 text-center text-sm text-slate-400">Belum ada anggota tim.</div>}</div></div></div>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className="flex items-center justify-between mb-3"><div><h3 className="font-extrabold text-sm text-slate-900">Status operasional minggu ini</h3><p className="text-[10px] text-slate-400">Progress dihitung dari status kegiatan yang sudah ada.</p></div><span className="text-lg font-black text-indigo-600">{completion}%</span></div><div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" style={{width:`${completion}%`}}/></div></div><div className="bg-slate-900 rounded-2xl p-4 shadow-sm text-white"><div className="flex items-center gap-2 mb-2"><Zap size={15} className="text-amber-300"/><h3 className="font-extrabold text-sm">Automation Ready</h3></div><p className="text-[10px] text-slate-300 leading-relaxed">Planner membaca status kegiatan yang sama dengan alur reminder dan report WhatsApp. Tidak ada field Firestore baru yang diperlukan.</p><div className="flex gap-2 mt-3"><span className="px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 text-[9px] font-bold">WA Gateway</span><span className="px-2 py-1 rounded-lg bg-violet-500/15 text-violet-300 text-[9px] font-bold">n8n</span></div></div></div>
   </div>;
 }
-function memberBySafe(members,a){return members.find(m=>m.id===a.assignedMemberId);}
-function PerformanceOverview({members,activities,cursor}) {
-  const monthPrefix=`${cursor.y}-${String(cursor.m+1).padStart(2,"0")}`, monthActs=activities.filter(a=>a.date?.startsWith(monthPrefix)), exec=members.filter(m=>String(m.posisi||"").toUpperCase()!=="BSM");
-  const total=monthActs.length, done=monthActs.filter(a=>a.status==="selesai").length, overdue=monthActs.filter(a=>activityState(a).key==="overdue").length;
-  return <div className="space-y-5"><div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><StatCard icon={<ListTodo size={20}/>} value={total} label={`Kegiatan ${BULAN[cursor.m]}`} /><StatCard icon={<CheckCircle2 size={20}/>} value={done} label="Selesai" tone="emerald"/><StatCard icon={<Clock3 size={20}/>} value={total-done} label="Dalam Proses" tone="blue"/><StatCard icon={<AlertTriangle size={20}/>} value={overdue} label="Overdue" tone="rose"/></div>
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"><div className="flex items-center justify-between mb-4"><div><h2 className="font-bold">Progress Per Anggota</h2><p className="text-xs text-slate-400">Rata-rata progress kegiatan bulan berjalan</p></div><div className="flex items-center gap-2"><IconBtn onClick={()=>{}}><Filter size={15}/></IconBtn></div></div><div className="grid md:grid-cols-2 gap-x-8 gap-y-4">{exec.map(m=>{const mine=monthActs.filter(a=>a.assignedMemberId===m.id),p=mine.length?Math.round(mine.reduce((s,a)=>s+activityProgress(a),0)/mine.length):0;return <div key={m.id}><div className="flex justify-between text-xs mb-1.5"><span className="font-semibold">{m.name}</span><span className="text-slate-400">{mine.length} task · {p}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${p}%`,background:memberColor(m)}}/></div></div>})}</div></div>
-  </div>;
+
+// ---------- Monthly Planner: mode kalender lama tetap tersedia, default planner tetap weekly ----------
+function MonthlyPlanner({ activities, members, cursor, setCursor, onOpenActivity, onAddActivity, onViewChange }) {
+  const first = new Date(cursor.y, cursor.m, 1); const startOffset = (first.getDay() + 6) % 7; const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
+  const cells=[]; for(let i=0;i<startOffset;i++)cells.push(null); for(let d=1;d<=daysInMonth;d++)cells.push(d); while(cells.length%7!==0)cells.push(null);
+  const byDate={}; activities.forEach(a=>{(byDate[a.date] ||= []).push(a)}); Object.values(byDate).forEach(list=>list.sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99")));
+  return <div className="space-y-5"><div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3"><div><div className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-indigo-600">Calendar View</div><h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Kalender Bulanan</h1><p className="text-sm text-slate-500 mt-1">Tampilan kalender tetap tersedia untuk melihat kepadatan kegiatan per tanggal.</p></div><div className="flex items-center gap-2"><button onClick={()=>onViewChange("weekly")} className="px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">Weekly Planner</button><IconBtn onClick={()=>setCursor(c=>c.m===0?{y:c.y-1,m:11}:{y:c.y,m:c.m-1})}><ChevronLeft size={18}/></IconBtn><div className="min-w-[150px] text-center font-extrabold text-slate-900">{BULAN[cursor.m]} {cursor.y}</div><IconBtn onClick={()=>setCursor(c=>c.m===11?{y:c.y+1,m:0}:{y:c.y,m:c.m+1})}><ChevronRight size={18}/></IconBtn></div></div><div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm"><div className="grid grid-cols-7 gap-2 text-center text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">{HARI.map(h=><div key={h}>{h}</div>)}</div><div className="grid grid-cols-7 gap-2">{cells.map((d,i)=>{if(d===null)return <div key={i} className="min-h-[110px]"/>;const key=dateKey(cursor.y,cursor.m,d);const dayActs=byDate[key]||[];const isToday=key===todayKey();return <div key={key} className={`min-h-[110px] rounded-xl border p-2 text-left ${isToday?"border-indigo-400 bg-indigo-50/50":"border-slate-200 bg-slate-50/40"}`}><div className={`text-xs font-black mb-1 ${isToday?"text-indigo-700":"text-slate-600"}`}>{d}</div><div className="space-y-1">{dayActs.slice(0,3).map(a=><button key={a.id} onClick={()=>onOpenActivity(a.id)} className="w-full text-left"><EventChip activity={{...a,_posisi:members.find(m=>m.id===a.assignedMemberId)?.posisi}}/></button>)}{dayActs.length>3&&<div className="text-[9px] font-bold text-slate-400">+{dayActs.length-3} kegiatan</div>}</div><button onClick={()=>onAddActivity(key)} className="mt-1 w-full h-6 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 flex items-center justify-center"><Plus size={12}/></button></div>})}</div></div></div>;
 }
-function TeamView({members,activities,onOpen,onManage}) {
-  const exec=members.filter(m=>String(m.posisi||"").toUpperCase()!=="BSM");
-  return <div className="space-y-6"><PageHeading icon={<Users size={20}/>} title="Team" subtitle="Ringkasan assignment dan aktivitas setiap anggota." right={<PrimaryBtn onClick={onManage}><Users size={15}/> Kelola Anggota</PrimaryBtn>}/><div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">{exec.map(m=>{const mine=activities.filter(a=>a.assignedMemberId===m.id),done=mine.filter(a=>a.status==="selesai").length,overdue=mine.filter(a=>activityState(a).key==="overdue").length,p=mine.length?Math.round(mine.reduce((s,a)=>s+activityProgress(a),0)/mine.length):0;return <div key={m.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"><div className="flex items-center gap-3"><span className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold" style={{background:memberColor(m)}}>{(m.name||"?")[0]}</span><div className="min-w-0"><div className="font-bold truncate">{m.name}</div><div className="text-xs text-slate-400">{m.posisi}{m.branch?` · ${m.branch}`:""}</div></div></div><div className="grid grid-cols-3 gap-2 mt-5 text-center"><div className="bg-slate-50 rounded-lg p-2"><b>{mine.length}</b><span className="block text-[9px] text-slate-400">Total</span></div><div className="bg-emerald-50 rounded-lg p-2"><b className="text-emerald-700">{done}</b><span className="block text-[9px] text-slate-400">Selesai</span></div><div className="bg-rose-50 rounded-lg p-2"><b className="text-rose-700">{overdue}</b><span className="block text-[9px] text-slate-400">Overdue</span></div></div><div className="mt-4"><div className="flex justify-between text-[10px] text-slate-400 mb-1"><span>Progress</span><b>{p}%</b></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${p}%`,background:memberColor(m)}}/></div></div><div className="mt-4 space-y-1">{mine.slice(0,3).map(a=><button key={a.id} onClick={()=>onOpen(a.id)} className="w-full text-left text-xs py-1.5 truncate hover:text-indigo-600">{a.status==="selesai"?"✓":"•"} {a.title}</button>)}</div></div>})}</div></div>;
-}
+
 // ---------- Sidebar: Agenda Hari Ini ----------
 function AgendaHariIni({ activities, members, onOpen }) {
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
@@ -847,7 +1136,7 @@ function AddActivityModal({ initialDate, members, onClose, onSave }) {
 }
 
 // ---------- Activity Detail Modal ----------
-function ActivityDetailModal({ activity, member, members, onClose, onToggleStatus, onReschedule, onEdit, onDelete, onAddPhoto, onRemovePhoto }) {
+function ActivityDetailModal({ activity, member, members, rgeReports, onClose, onToggleStatus, onReschedule, onEdit, onDelete, onAddPhoto, onRemovePhoto }) {
   const [uploading, setUploading] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [newDate, setNewDate] = useState("");
@@ -885,6 +1174,22 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
 
   if (!activity) return null;
   const chipColor = posisiColor(member?.posisi);
+  const reportInfo = reportInfoForActivity(activity, member, rgeReports);
+  const reportSteps = [
+    ["Jadwal", true],
+    ["Reminder WA", true],
+    ["Report WA", reportInfo.received],
+    ["Dokumentasi", reportInfo.photo],
+    ["Hasil", reportInfo.hasResult],
+  ];
+
+  const reportChain = (
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 p-4">
+      <div className="flex items-center justify-between mb-3"><div><div className="text-xs font-black text-slate-900">Execution → Report → Achievement</div><div className="text-[11px] text-slate-500">Status kegiatan dan laporan WA dalam satu alur.</div></div><span className={`text-[10px] font-extrabold px-2 py-1 rounded-full ${reportInfo.received ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{reportInfo.received ? "REPORT RECEIVED" : "REPORT PENDING"}</span></div>
+      <div className="flex items-center gap-1">{reportSteps.map(([label,done],i)=><Fragment key={label}><div className="flex-1 min-w-0"><div className={`h-2 rounded-full ${done ? "bg-indigo-500" : "bg-slate-200"}`} /><div className={`mt-1 text-[9px] font-bold truncate ${done ? "text-slate-700" : "text-slate-400"}`}>{label}</div></div>{i<reportSteps.length-1&&<ChevronRight size={12} className="text-slate-300 shrink-0"/>}</Fragment>)}</div>
+      {reportInfo.latest && <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span>WA report: <b className="text-slate-700">{String(reportInfo.latest.Timestamp || reportInfo.latest.receivedAt || "").slice(0,16).replace("T"," ")}</b></span><span>{reportInfo.latest.rawCaption ? `“${String(reportInfo.latest.rawCaption).slice(0,80)}${String(reportInfo.latest.rawCaption).length>80?"…":""}”` : "Laporan diterima dari workflow n8n."}</span></div>}
+    </div>
+  );
 
   async function saveHasil() {
     setSavingHasil(true);
@@ -918,18 +1223,55 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
   }
 
   return (
-    <Modal onClose={onClose} width={520}>
-      <ModalHeader
-        title={<span className="flex items-center gap-2"><StatusMarker status={activity.status} /> {activity.title}</span>}
-        onClose={onClose}
-        icon={<span style={{ width: 12, height: 12, borderRadius: 4, background: chipColor, display: "inline-block" }} />}
-      />
-      <div className="p-5 flex flex-col gap-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="text-sm text-slate-500 font-mono">
-            {new Date(activity.date + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-            {activity.time && ` · ${activity.time}`}
+    <Modal onClose={onClose} width={760}>
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(135deg,#EEF2FF 0%,#FFFFFF 58%,#F0FDFA 100%)" }} />
+        <div className="relative px-5 pt-5 pb-4 border-b border-slate-200/80">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span style={{ width: 10, height: 10, borderRadius: 999, background: chipColor, display: "inline-block", boxShadow: `0 0 0 4px ${chipColor}18` }} />
+                <span className="text-[11px] uppercase tracking-[0.16em] font-bold text-slate-500">{activity.jenisKegiatan || "Kegiatan"}</span>
+                <StatusMarker status={activity.status} />
+              </div>
+              <h2 className="text-xl md:text-2xl font-black text-slate-900 leading-tight">{activity.title}</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span className="inline-flex items-center gap-1.5 bg-white/80 border border-slate-200 rounded-full px-2.5 py-1">
+                  <CalendarIcon size={13} />
+                  {new Date(activity.date + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                </span>
+                {activity.time && <span className="inline-flex items-center gap-1.5 bg-white/80 border border-slate-200 rounded-full px-2.5 py-1"><Clock size={13} />{activity.time}</span>}
+                {member && <span className="inline-flex items-center gap-1.5 bg-white/80 border border-slate-200 rounded-full px-2.5 py-1"><Users size={13} />{member.name}</span>}
+              </div>
+            </div>
+            <button onClick={onClose} className="shrink-0 w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 flex items-center justify-center shadow-sm" aria-label="Tutup">
+              <X size={17} />
+            </button>
           </div>
+        </div>
+      </div>
+      <div className="p-5 flex flex-col gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Status</div>
+            <div className="mt-1 text-sm font-bold text-slate-900 flex items-center gap-1.5"><StatusMarker status={activity.status} />{activity.status === "selesai" ? "Selesai" : "Rencana"}</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Dokumentasi</div>
+            <div className="mt-1 text-sm font-bold text-slate-900 flex items-center gap-1.5"><ImageIcon size={14} />{activity.photos?.length || 0} foto</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Penanggung Jawab</div>
+            <div className="mt-1 text-sm font-bold text-slate-900 truncate">{member?.name || "Belum ditentukan"}</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Hasil</div>
+            <div className="mt-1 text-sm font-bold text-slate-900">{kategoriHasilAktif ? "Siap diisi" : "Tidak ada form"}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between flex-wrap gap-2 rounded-xl bg-slate-900 p-3 shadow-sm">
+          <div className="text-xs text-slate-300">Kontrol kegiatan</div>
           <div className="flex items-center gap-2">
             {activity.status === "selesai"
               ? <GhostBtn onClick={() => onToggleStatus(activity.id, "rencana")}>Tandai belum selesai</GhostBtn>
@@ -1021,6 +1363,8 @@ function ActivityDetailModal({ activity, member, members, onClose, onToggleStatu
         )}
 
         {activity.description && <p className="text-sm text-slate-700 leading-relaxed">{activity.description}</p>}
+
+        {reportChain}
 
         {kategoriHasilAktif && (
           <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2">
@@ -1957,6 +2301,369 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget }) {
           onSave={(patch) => onSaveTarget(editMember.id, monthKey, patch)}
         />
       )}
+    </div>
+  );
+}
+
+// ---------- Dashboard: ringkasan kondisi tim hari ini -- semua dihitung dari activities+members
+// yang sudah ada (statusOf), tidak ada field/collection baru yang dibaca di sini. ----------
+function greetingNow() {
+  const h = new Date().getHours();
+  if (h < 11) return "Selamat Pagi";
+  if (h < 15) return "Selamat Siang";
+  if (h < 18) return "Selamat Sore";
+  return "Selamat Malam";
+}
+// "N menit/jam/hari yang lalu" sederhana -- dipakai di feed Aktivitas Terbaru.
+function timeAgoID(date) {
+  if (!date || isNaN(date.getTime())) return "";
+  const diffMs = Date.now() - date.getTime();
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "Baru saja";
+  if (min < 60) return `${min} menit yang lalu`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} jam yang lalu`;
+  const day = Math.floor(hr / 24);
+  return `${day} hari yang lalu`;
+}
+
+// ---------- Mini Jadwal Tim: versi ringkas WeeklyPlanner untuk kartu Beranda ----------
+function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, onOpenActivity, onAddActivity, onGoFullSchedule }) {
+  const weekStart = new Date(weekCursor); weekStart.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+  const weekKeys = days.map((d) => dateKey(d.getFullYear(), d.getMonth(), d.getDate()));
+  const today = todayKey();
+  const teamMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  const visibleMembers = (teamMembers.length ? teamMembers : members);
+  const byMemberDay = (id, key) => activities.filter((a) => a.assignedMemberId === id && a.date === key).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+  const moveWeek = (offset) => { const d = new Date(weekStart); d.setDate(d.getDate() + offset * 7); setWeekCursor(d); };
+  const goToday = () => { const t = new Date(); const day = (t.getDay() + 6) % 7; t.setDate(t.getDate() - day); setWeekCursor(t); };
+  const monthLabel = days[0].getMonth() === days[6].getMonth() ? `${days[0].getDate()} – ${days[6].getDate()} ${BULAN[days[0].getMonth()]} ${days[6].getFullYear()}` : `${days[0].getDate()} ${BULAN[days[0].getMonth()]} – ${days[6].getDate()} ${BULAN[days[6].getMonth()]} ${days[6].getFullYear()}`;
+
+  return (
+    <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <CalendarIcon size={17} className="text-indigo-600" />
+          <div>
+            <h3 className="font-bold text-slate-900">Jadwal Tim</h3>
+            <p className="text-[11px] text-slate-400">{monthLabel}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <IconBtn onClick={() => moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={16} /></IconBtn>
+          <GhostBtn onClick={goToday}>Hari ini</GhostBtn>
+          <IconBtn onClick={() => moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={16} /></IconBtn>
+          <button onClick={onGoFullSchedule} className="hidden sm:inline-flex px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition">Minggu Ini</button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="min-w-[900px]">
+          <div className="grid grid-cols-[150px_repeat(7,minmax(110px,1fr))] border-b border-slate-100 bg-slate-50/60">
+            <div className="p-2.5 text-[10px] font-black uppercase tracking-wider text-slate-400">{visibleMembers.length} Anggota Tim</div>
+            {days.map((d, i) => {
+              const key = weekKeys[i]; const isToday = key === today;
+              return (
+                <div key={key} className={`p-2 border-l border-slate-100 text-center ${isToday ? "bg-indigo-50" : ""}`}>
+                  <div className={`text-[9px] font-black uppercase ${isToday ? "text-indigo-600" : "text-slate-400"}`}>{HARI[i]}</div>
+                  <div className={`text-sm font-black ${isToday ? "text-indigo-700" : "text-slate-700"}`}>{d.getDate()} {BULAN[d.getMonth()].slice(0, 3)}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="max-h-[420px] overflow-y-auto">
+            {visibleMembers.map((m) => (
+              <div key={m.id} className="grid grid-cols-[150px_repeat(7,minmax(110px,1fr))] border-b border-slate-50 last:border-b-0">
+                <div className="p-2.5 flex items-center gap-2 sticky left-0 bg-white z-[1] border-r border-slate-100">
+                  <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: memberColor(m.id) }}>{(m.name || "?").slice(0, 1).toUpperCase()}</span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-[11px] text-slate-800 truncate">{m.name}</div>
+                    <div className="text-[9px] text-indigo-500 font-bold truncate">{m.posisi || "RGE"}</div>
+                  </div>
+                </div>
+                {weekKeys.map((key) => {
+                  const dayActs = byMemberDay(m.id, key);
+                  const isToday = key === today;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => dayActs.length ? onOpenActivity(dayActs[0].id) : onAddActivity(key)}
+                      className={`text-left border-l border-slate-50 p-1.5 min-h-[52px] hover:bg-indigo-50/30 transition ${isToday ? "bg-indigo-50/30" : ""}`}
+                    >
+                      {dayActs.length === 0 ? (
+                        <span className="text-[10px] text-slate-300 italic">Free</span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {dayActs.slice(0, 1).map((a) => {
+                            const cm = categoryMeta(normalizeJenisKegiatan(a.jenisKegiatan));
+                            const Icon = cm.icon;
+                            return (
+                              <div key={a.id} className="rounded-lg px-1.5 py-1" style={{ background: cm.bg }}>
+                                <div className="flex items-center gap-1 text-[9px] font-black" style={{ color: cm.color }}><Icon size={10} /> {normalizeJenisKegiatan(a.jenisKegiatan)}</div>
+                                <div className="text-[9px] text-slate-600 truncate mt-0.5">{a.title}</div>
+                                {a.time && <div className="text-[8px] text-slate-400 mt-0.5">{a.time}</div>}
+                              </div>
+                            );
+                          })}
+                          {dayActs.length > 1 && <span className="text-[8px] font-bold text-slate-400">+{dayActs.length - 1} lagi</span>}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {visibleMembers.length === 0 && <div className="p-8 text-center text-sm text-slate-400">Belum ada anggota tim.</div>}
+          </div>
+        </div>
+      </div>
+      <button onClick={onGoFullSchedule} className="w-full sm:hidden py-3 text-center text-xs font-bold text-indigo-600 border-t border-slate-100">Lihat semua anggota (Minggu Ini) →</button>
+    </section>
+  );
+}
+
+function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, setWeekCursor, onOpenActivity, onAddActivity, onGoFullSchedule }) {
+  const today = todayKey();
+  const now = new Date();
+  const memberOf = (id) => members.find((m) => m.id === id);
+  const withStatus = activities.map((a) => {
+    const m = memberOf(a.assignedMemberId);
+    const report = reportInfoForActivity(a, m, rgeReports);
+    return { ...a, _status: statusOf(a, now), _report: report };
+  });
+  const todays = withStatus.filter((a) => a.date === today).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+  const monthPrefix = today.slice(0, 7);
+
+  const totalToday = todays.length;
+  const doneToday = todays.filter((a) => a._status === "selesai").length;
+  const pendingReport = todays.filter((a) => ["menunggu_report", "overdue"].includes(a._status) && !a._report.received).length;
+  const completion = totalToday ? Math.round((doneToday / totalToday) * 100) : 0;
+
+  const categoryStats = JENIS_KEGIATAN_OPSI.map((label) => ({
+    label,
+    total: todays.filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === label).length,
+  })).filter((x) => x.total > 0);
+
+  const reportPendingList = todays.filter((a) => ["menunggu_report", "overdue"].includes(a._status) && !a._report.received);
+
+  // ---- Pencapaian KPI (bulan berjalan): rata-rata tertimbang SP 40% + FWA 25% + Desa 10% +
+  // School 10% + POSM 15% -- bobot yang sama seperti yang sudah ditampilkan di header tabel
+  // Rekap KPI, jadi angkanya konsisten dengan tab "Pencapaian KPI". ----
+  const rgeMembersAll = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  function kpiForMonth(mKey) {
+    const totals = rgeMembersAll.reduce((acc, m) => {
+      const target = kpiTargets.find((t) => t.memberId === m.id && t.monthKey === mKey) || {};
+      const achv = hitungAchievement(m.id, mKey, rgeReports);
+      return {
+        targetSP: acc.targetSP + (Number(target.targetSP) || 0), achvSP: acc.achvSP + achv.achvSP,
+        targetFWA: acc.targetFWA + (Number(target.targetFWA) || 0), achvFWA: acc.achvFWA + achv.achvFWA,
+        targetDesa: acc.targetDesa + (Number(target.targetDesa) || 0), achvDesa: acc.achvDesa + achv.achvDesa,
+        targetSchool: acc.targetSchool + (Number(target.targetSchool) || 0), achvSchool: acc.achvSchool + achv.achvSchool,
+        posmSum: acc.posmSum + (Number(target.posmAchievementPercent) || 0),
+        posmCount: acc.posmCount + (target.posmAchievementPercent ? 1 : 0),
+        anyTarget: acc.anyTarget || Number(target.targetSP) > 0 || Number(target.targetFWA) > 0 || Number(target.targetDesa) > 0 || Number(target.targetSchool) > 0 || Number(target.posmAchievementPercent) > 0,
+      };
+    }, { targetSP: 0, achvSP: 0, targetFWA: 0, achvFWA: 0, targetDesa: 0, achvDesa: 0, targetSchool: 0, achvSchool: 0, posmSum: 0, posmCount: 0, anyTarget: false });
+    const posmAvg = totals.posmCount ? Math.round(totals.posmSum / totals.posmCount) : 0;
+    const overall = totals.anyTarget ? Math.round(
+      pct(totals.achvSP, totals.targetSP) * 0.40 + pct(totals.achvFWA, totals.targetFWA) * 0.25 +
+      pct(totals.achvDesa, totals.targetDesa) * 0.10 + pct(totals.achvSchool, totals.targetSchool) * 0.10 + posmAvg * 0.15
+    ) : 0;
+    return { overall, hasTarget: totals.anyTarget };
+  }
+  const monthKeyNow = monthPrefix;
+  const kpiNow = kpiForMonth(monthKeyNow);
+  const prevD = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const kpiPrev = kpiForMonth(`${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, "0")}`);
+  const kpiDelta = kpiNow.overall - kpiPrev.overall;
+
+  // ---- Aktivitas Terbaru: gabungan kegiatan yang baru selesai + laporan foto WA terbaru,
+  // diurutkan dari yang paling baru. Tidak ada log sistem tersendiri, jadi feed ini murni dari
+  // data activities + rgeReports yang sudah ada. ----
+  const recentDone = withStatus
+    .filter((a) => a.status === "selesai")
+    .map((a) => ({ key: `act-${a.id}`, ts: `${a.date}T${a.time || "00:00"}`, icon: CheckCircle2, tone: "#059669", text: `${memberOf(a.assignedMemberId)?.name || "Anggota"} menyelesaikan kegiatan`, sub: a.title }));
+  const recentReports = [...rgeReports]
+    .sort((a, b) => String(b.Timestamp || b.receivedAt || "").localeCompare(String(a.Timestamp || a.receivedAt || "")))
+    .slice(0, 8)
+    .map((r) => {
+      const name = members.find((m) => m.id === (r.memberId || r.MemberId) || m.phone === (r.phone || r.Phone))?.name || "Tim RGE";
+      return { key: `rep-${r.id}`, ts: r.Timestamp || r.receivedAt || "", icon: MessageCircle, tone: "#059669", text: `${name} mengirim report via WA`, sub: (r.Kategori || r.category || "").toUpperCase() || null };
+    });
+  const activityFeed = [...recentDone, ...recentReports]
+    .filter((x) => x.ts)
+    .sort((a, b) => String(b.ts).localeCompare(String(a.ts)))
+    .slice(0, 5)
+    .map((x) => ({ ...x, when: timeAgoID(new Date(x.ts.length <= 10 ? `${x.ts}T00:00:00` : x.ts)) }));
+
+  const donutTotal = categoryStats.reduce((s, x) => s + x.total, 0);
+
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      <div className="xl:col-span-2 flex flex-col gap-5">
+        {/* Banner sambutan */}
+        <section className="relative overflow-hidden rounded-3xl p-6 sm:p-7 text-white shadow-sm" style={{ background: "linear-gradient(135deg,#0F172A 0%,#312E81 55%,#4F46E5 100%)" }}>
+          <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-white/10" />
+          <div className="absolute right-16 -bottom-20 w-52 h-52 rounded-full bg-fuchsia-400/10" />
+          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(to top, rgba(15,23,42,0.9), transparent 55%)" }} />
+          <div className="relative">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{greetingNow()}, Admin 👋</h2>
+            <p className="text-indigo-100 text-sm mt-1.5 max-w-md">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
+          </div>
+        </section>
+
+        {/* Stat cards */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: "Total Jadwal Hari Ini", value: totalToday, icon: CalendarIcon, tone: "#4F46E5", note: `dari ${members.length} anggota tim`, up: true },
+            { label: "Kegiatan Selesai", value: doneToday, icon: CheckCircle2, tone: "#059669", note: `dari ${totalToday} jadwal`, pctNote: `${completion}%`, up: completion >= 50 },
+            { label: "Menunggu Report WA", value: pendingReport, icon: Clock, tone: "#DC2626", note: "belum mengirim", pctNote: totalToday ? `${Math.round((pendingReport / totalToday) * 100)}%` : "0%", up: false },
+            { label: "Pencapaian KPI", value: `${kpiNow.overall}%`, icon: Award, tone: "#D97706", note: "bulan ini", pctNote: `${kpiDelta >= 0 ? "+" : ""}${kpiDelta}%`, up: kpiDelta >= 0 },
+          ].map((k) => {
+            const Icon = k.icon;
+            return (
+              <div key={k.label} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${k.tone}18`, color: k.tone }}><Icon size={17} /></span>
+                <div className="text-2xl font-extrabold text-slate-900 mt-3">{k.value}</div>
+                <div className="text-[11px] font-bold text-slate-500 mt-0.5">{k.label}</div>
+                <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-slate-400">
+                  <span>{k.note}</span>
+                  {k.pctNote && <span className={`inline-flex items-center gap-0.5 font-bold ${k.up ? "text-emerald-600" : "text-rose-500"}`}>{k.up ? "↑" : "↓"} {k.pctNote}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+
+        {/* Jadwal Tim (mini weekly grid) */}
+        <WeeklyScheduleMini activities={activities} members={members} weekCursor={weekCursor} setWeekCursor={setWeekCursor} onOpenActivity={onOpenActivity} onAddActivity={onAddActivity} onGoFullSchedule={onGoFullSchedule} />
+      </div>
+
+      <div className="flex flex-col gap-5">
+        {/* Ringkasan Kegiatan */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-900">Ringkasan Kegiatan</h3><BarChart2 size={17} className="text-slate-300" /></div>
+          {categoryStats.length === 0 ? <p className="text-sm text-slate-400 italic">Belum ada kegiatan hari ini.</p> : (
+            <div className="flex items-center gap-5">
+              <DonutChart
+                segments={categoryStats.map((x) => ({ label: x.label, value: x.total, color: categoryMeta(x.label).color }))}
+                centerLabel={donutTotal} centerSub="Total Kegiatan"
+              />
+              <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                {categoryStats.sort((a, b) => b.total - a.total).map((x) => (
+                  <div key={x.label} className="flex items-center justify-between text-xs gap-2">
+                    <span className="flex items-center gap-1.5 text-slate-600 truncate"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: categoryMeta(x.label).color }} /><span className="truncate">{x.label}</span></span>
+                    <b className="text-slate-800 shrink-0">{x.total} <span className="text-slate-400 font-medium">({donutTotal ? Math.round((x.total / donutTotal) * 100) : 0}%)</span></b>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Pencapaian KPI gauge */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-900">Pencapaian KPI</h3><Award size={17} className="text-amber-400" /></div>
+          <div className="flex items-center gap-5">
+            <DonutChart segments={[{ value: kpiNow.overall, color: "#4F46E5" }, { value: Math.max(0, 100 - kpiNow.overall), color: "#E2E8F0" }]} centerLabel={`${kpiNow.overall}%`} />
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] text-slate-400">Target Bulan Ini</div>
+              <div className="text-lg font-extrabold text-slate-900">{kpiNow.overall}% <span className="text-xs font-semibold text-slate-400">dari 100%</span></div>
+              <span className={`inline-flex items-center gap-1 text-[11px] font-bold mt-1 ${kpiDelta >= 0 ? "text-emerald-600" : "text-rose-500"}`}>{kpiDelta >= 0 ? "↑" : "↓"} {Math.abs(kpiDelta)}% dari bulan lalu</span>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-2"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, kpiNow.overall)}%` }} /></div>
+              {!kpiNow.hasTarget && <p className="text-[10px] text-slate-400 mt-2">Target KPI RGE belum diisi bulan ini.</p>}
+            </div>
+          </div>
+        </section>
+
+        {/* Pengiriman Report WA */}
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2"><MessageCircle size={16} className="text-emerald-500" /><h3 className="font-bold text-sm text-slate-900">Pengiriman Report WA</h3></div>
+            <span className="text-[11px] font-bold text-rose-500">{reportPendingList.length} menunggu</span>
+          </div>
+          {reportPendingList.length === 0 ? (
+            <p className="px-5 pb-4 text-xs text-slate-400 italic">Semua report hari ini sudah masuk.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {reportPendingList.slice(0, 4).map((a) => {
+                const m = memberOf(a.assignedMemberId);
+                return (
+                  <button key={a.id} onClick={() => onOpenActivity(a.id)} className="w-full px-5 py-2.5 flex items-center gap-3 text-left hover:bg-slate-50 transition">
+                    <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: memberColor(a.assignedMemberId) }}>{(m?.name || "?").slice(0, 1).toUpperCase()}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-bold text-slate-800 truncate">{m?.name || "Tanpa PIC"}</span>
+                      <span className="block text-[10px] text-slate-400 truncate">{a.title} · {a.time || a.date}</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-600 shrink-0">Menunggu</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Aktivitas Terbaru */}
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 flex items-center gap-2"><Zap size={16} className="text-indigo-500" /><h3 className="font-bold text-sm text-slate-900">Aktivitas Terbaru</h3></div>
+          {activityFeed.length === 0 ? (
+            <p className="px-5 pb-4 text-xs text-slate-400 italic">Belum ada aktivitas terbaru.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {activityFeed.map((x) => {
+                const Icon = x.icon;
+                return (
+                  <div key={x.key} className="px-5 py-2.5 flex items-start gap-3">
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: `${x.tone}18`, color: x.tone }}><Icon size={13} /></span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-700 truncate">{x.text}</div>
+                      {x.sub && <div className="text-[10px] text-slate-400 truncate">{x.sub}</div>}
+                      <div className="text-[10px] text-slate-300 mt-0.5">{x.when}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Team Overview: ringkasan per anggota RGE hari ini + overdue keseluruhan. ----------
+function TeamOverview({ activities, members }) {
+  const today = todayKey();
+  const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  const rows = rgeMembers.map((m) => {
+    const todays = activities.filter((a) => a.assignedMemberId === m.id && a.date === today).map((a) => ({ ...a, _status: statusOf(a) }));
+    const completed = todays.filter((a) => a._status === "selesai").length;
+    const active = todays.filter((a) => ["hari_ini", "berjalan", "menunggu_report"].includes(a._status)).length;
+    const overdueAll = activities.filter((a) => a.assignedMemberId === m.id && statusOf(a) === "overdue").length;
+    return { member: m, total: todays.length, completed, active, overdue: overdueAll };
+  });
+
+  return (
+    <div>
+      <h3 className="font-bold text-base text-slate-900 mb-4">Tim — Hari Ini</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {rows.map((r) => (
+          <div key={r.member.id} className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: memberColor(r.member.id) }} />
+              <span className="font-bold text-slate-800 truncate">{r.member.name}</span>
+              <span className="text-[10px] text-slate-400 ml-auto shrink-0">{r.member.branch}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div><div className="text-lg font-extrabold text-slate-800">{r.total}</div><div className="text-slate-400">Kegiatan hari ini</div></div>
+              <div><div className="text-lg font-extrabold text-emerald-600">{r.completed}</div><div className="text-slate-400">Selesai</div></div>
+              <div><div className="text-lg font-extrabold text-indigo-600">{r.active}</div><div className="text-slate-400">Aktif</div></div>
+              <div><div className="text-lg font-extrabold text-red-600">{r.overdue}</div><div className="text-slate-400">Overdue (semua)</div></div>
+            </div>
+          </div>
+        ))}
+        {rows.length === 0 && <p className="text-sm text-slate-400 italic col-span-full">Belum ada anggota dengan posisi RGE.</p>}
+      </div>
     </div>
   );
 }
