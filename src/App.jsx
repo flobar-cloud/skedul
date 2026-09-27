@@ -2361,43 +2361,43 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="px-4 py-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <CalendarIcon size={17} className="text-indigo-600" />
+          <CalendarIcon size={16} className="text-indigo-600" />
           <div>
-            <h3 className="font-bold text-slate-900">Jadwal Tim</h3>
-            <p className="text-[11px] text-slate-400">{monthLabel}</p>
+            <h3 className="font-bold text-sm text-slate-900">Jadwal Tim</h3>
+            <p className="text-[10px] text-slate-400">{monthLabel}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <IconBtn onClick={() => moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={16} /></IconBtn>
+        <div className="flex items-center gap-1.5">
+          <IconBtn onClick={() => moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={15} /></IconBtn>
           <GhostBtn onClick={goToday}>Hari ini</GhostBtn>
-          <IconBtn onClick={() => moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={16} /></IconBtn>
-          <button onClick={onGoFullSchedule} className="hidden sm:inline-flex px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition">Minggu Ini</button>
+          <IconBtn onClick={() => moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={15} /></IconBtn>
+          <button onClick={onGoFullSchedule} className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition">Minggu Ini</button>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <div className="min-w-[900px]">
-          <div className="grid grid-cols-[150px_repeat(7,minmax(110px,1fr))] border-b border-slate-100 bg-slate-50/60">
-            <div className="p-2.5 text-[10px] font-black uppercase tracking-wider text-slate-400">{visibleMembers.length} Anggota Tim</div>
+        <div className="min-w-[820px]">
+          <div className="grid grid-cols-[130px_repeat(7,minmax(96px,1fr))] border-b border-slate-100 bg-slate-50/60">
+            <div className="p-2 text-[9px] font-black uppercase tracking-wider text-slate-400">{visibleMembers.length} Anggota Tim</div>
             {days.map((d, i) => {
               const key = weekKeys[i]; const isToday = key === today;
               return (
-                <div key={key} className={`p-2 border-l border-slate-100 text-center ${isToday ? "bg-indigo-50" : ""}`}>
-                  <div className={`text-[9px] font-black uppercase ${isToday ? "text-indigo-600" : "text-slate-400"}`}>{HARI[i]}</div>
-                  <div className={`text-sm font-black ${isToday ? "text-indigo-700" : "text-slate-700"}`}>{d.getDate()} {BULAN[d.getMonth()].slice(0, 3)}</div>
+                <div key={key} className={`p-1.5 border-l border-slate-100 text-center ${isToday ? "bg-indigo-50" : ""}`}>
+                  <div className={`text-[8.5px] font-black uppercase ${isToday ? "text-indigo-600" : "text-slate-400"}`}>{HARI[i]}</div>
+                  <div className={`text-[12px] font-black ${isToday ? "text-indigo-700" : "text-slate-700"}`}>{d.getDate()} {BULAN[d.getMonth()].slice(0, 3)}</div>
                 </div>
               );
             })}
           </div>
-          <div className="max-h-[420px] overflow-y-auto">
+          <div className="max-h-[600px] overflow-y-auto">
             {visibleMembers.map((m) => (
-              <div key={m.id} className="grid grid-cols-[150px_repeat(7,minmax(110px,1fr))] border-b border-slate-50 last:border-b-0">
-                <div className="p-2.5 flex items-center gap-2 sticky left-0 bg-white z-[1] border-r border-slate-100">
-                  <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0" style={{ background: memberColor(m.id) }}>{(m.name || "?").slice(0, 1).toUpperCase()}</span>
+              <div key={m.id} className="grid grid-cols-[130px_repeat(7,minmax(96px,1fr))] border-b border-slate-50 last:border-b-0">
+                <div className="p-1.5 flex items-center gap-1.5 sticky left-0 bg-white z-[1] border-r border-slate-100">
+                  <span className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[9px] font-black shrink-0" style={{ background: memberColor(m.id) }}>{(m.name || "?").slice(0, 1).toUpperCase()}</span>
                   <div className="min-w-0">
-                    <div className="font-bold text-[11px] text-slate-800 truncate">{m.name}</div>
-                    <div className="text-[9px] text-indigo-500 font-bold truncate">{m.posisi || "RGE"}</div>
+                    <div className="font-bold text-[10.5px] text-slate-800 truncate">{m.name}</div>
+                    <div className="text-[8.5px] text-indigo-500 font-bold truncate">{m.posisi || "RGE"}</div>
                   </div>
                 </div>
                 {weekKeys.map((key) => {
@@ -2407,24 +2407,23 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
                     <button
                       key={key}
                       onClick={() => dayActs.length ? onOpenActivity(dayActs[0].id) : onAddActivity(key)}
-                      className={`text-left border-l border-slate-50 p-1.5 min-h-[52px] hover:bg-indigo-50/30 transition ${isToday ? "bg-indigo-50/30" : ""}`}
+                      className={`text-left border-l border-slate-50 p-1 min-h-[40px] hover:bg-indigo-50/30 transition ${isToday ? "bg-indigo-50/30" : ""}`}
                     >
                       {dayActs.length === 0 ? (
-                        <span className="text-[10px] text-slate-300 italic">Free</span>
+                        <span className="text-[9px] text-slate-300 italic">Free</span>
                       ) : (
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-0.5">
                           {dayActs.slice(0, 1).map((a) => {
                             const cm = categoryMeta(normalizeJenisKegiatan(a.jenisKegiatan));
                             const Icon = cm.icon;
                             return (
-                              <div key={a.id} className="rounded-lg px-1.5 py-1" style={{ background: cm.bg }}>
-                                <div className="flex items-center gap-1 text-[9px] font-black" style={{ color: cm.color }}><Icon size={10} /> {normalizeJenisKegiatan(a.jenisKegiatan)}</div>
-                                <div className="text-[9px] text-slate-600 truncate mt-0.5">{a.title}</div>
-                                {a.time && <div className="text-[8px] text-slate-400 mt-0.5">{a.time}</div>}
+                              <div key={a.id} className="rounded-md px-1 py-0.5" style={{ background: cm.bg }}>
+                                <div className="flex items-center gap-1 text-[8.5px] font-black" style={{ color: cm.color }}><Icon size={9} /> {normalizeJenisKegiatan(a.jenisKegiatan)}</div>
+                                <div className="text-[8.5px] text-slate-600 truncate">{a.title}</div>
                               </div>
                             );
                           })}
-                          {dayActs.length > 1 && <span className="text-[8px] font-bold text-slate-400">+{dayActs.length - 1} lagi</span>}
+                          {dayActs.length > 1 && <span className="text-[7.5px] font-bold text-slate-400">+{dayActs.length - 1} lagi</span>}
                         </div>
                       )}
                     </button>
@@ -2458,9 +2457,15 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
   const pendingReport = todays.filter((a) => ["menunggu_report", "overdue"].includes(a._status) && !a._report.received).length;
   const completion = totalToday ? Math.round((doneToday / totalToday) * 100) : 0;
 
-  const categoryStats = JENIS_KEGIATAN_OPSI.map((label) => ({
+  // Donut "Ringkasan Kegiatan" sengaja di-scope ke MINGGU berjalan (bukan cuma hari ini) supaya
+  // tidak kelihatan kosong kalau kebetulan hari ini belum ada jadwal, padahal minggu ini ada.
+  // Pakai weekCursor yang sama dengan grid "Jadwal Tim" di bawahnya biar konsisten.
+  const weekStartForStats = new Date(weekCursor); weekStartForStats.setHours(0, 0, 0, 0);
+  const weekKeysForStats = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStartForStats); d.setDate(weekStartForStats.getDate() + i); return dateKey(d.getFullYear(), d.getMonth(), d.getDate()); });
+  const weekActs = activities.filter((a) => weekKeysForStats.includes(a.date));
+  const weekCategoryStats = JENIS_KEGIATAN_OPSI.map((label) => ({
     label,
-    total: todays.filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === label).length,
+    total: weekActs.filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === label).length,
   })).filter((x) => x.total > 0);
 
   const reportPendingList = todays.filter((a) => ["menunggu_report", "overdue"].includes(a._status) && !a._report.received);
@@ -2515,19 +2520,19 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
     .slice(0, 5)
     .map((x) => ({ ...x, when: timeAgoID(new Date(x.ts.length <= 10 ? `${x.ts}T00:00:00` : x.ts)) }));
 
-  const donutTotal = categoryStats.reduce((s, x) => s + x.total, 0);
+  const donutTotal = weekCategoryStats.reduce((s, x) => s + x.total, 0);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-      <div className="xl:col-span-2 flex flex-col gap-5">
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5">
+      <div className="min-w-0 flex flex-col gap-5">
         {/* Banner sambutan */}
-        <section className="relative overflow-hidden rounded-3xl p-6 sm:p-7 text-white shadow-sm" style={{ background: "linear-gradient(135deg,#0F172A 0%,#312E81 55%,#4F46E5 100%)" }}>
+        <section className="relative overflow-hidden rounded-2xl px-5 py-4 sm:px-6 sm:py-5 text-white shadow-sm" style={{ background: "linear-gradient(135deg,#0F172A 0%,#312E81 55%,#4F46E5 100%)" }}>
           <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-white/10" />
           <div className="absolute right-16 -bottom-20 w-52 h-52 rounded-full bg-fuchsia-400/10" />
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(to top, rgba(15,23,42,0.9), transparent 55%)" }} />
           <div className="relative">
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{greetingNow()}, Admin 👋</h2>
-            <p className="text-indigo-100 text-sm mt-1.5 max-w-md">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
+            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">{greetingNow()}, Admin 👋</h2>
+            <p className="text-indigo-100 text-xs sm:text-sm mt-1 max-w-md">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
           </div>
         </section>
 
@@ -2559,17 +2564,18 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
       </div>
 
       <div className="flex flex-col gap-5">
-        {/* Ringkasan Kegiatan */}
+        {/* Ringkasan Kegiatan (minggu ini) */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-slate-900">Ringkasan Kegiatan</h3><BarChart2 size={17} className="text-slate-300" /></div>
-          {categoryStats.length === 0 ? <p className="text-sm text-slate-400 italic">Belum ada kegiatan hari ini.</p> : (
+          <div className="flex items-center justify-between mb-1"><h3 className="font-bold text-slate-900">Ringkasan Kegiatan</h3><BarChart2 size={17} className="text-slate-300" /></div>
+          <p className="text-[10px] text-slate-400 mb-3">Minggu ini, semua anggota tim</p>
+          {weekCategoryStats.length === 0 ? <p className="text-sm text-slate-400 italic">Belum ada kegiatan terjadwal minggu ini.</p> : (
             <div className="flex items-center gap-5">
               <DonutChart
-                segments={categoryStats.map((x) => ({ label: x.label, value: x.total, color: categoryMeta(x.label).color }))}
+                segments={weekCategoryStats.map((x) => ({ label: x.label, value: x.total, color: categoryMeta(x.label).color }))}
                 centerLabel={donutTotal} centerSub="Total Kegiatan"
               />
               <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-                {categoryStats.sort((a, b) => b.total - a.total).map((x) => (
+                {weekCategoryStats.sort((a, b) => b.total - a.total).map((x) => (
                   <div key={x.label} className="flex items-center justify-between text-xs gap-2">
                     <span className="flex items-center gap-1.5 text-slate-600 truncate"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: categoryMeta(x.label).color }} /><span className="truncate">{x.label}</span></span>
                     <b className="text-slate-800 shrink-0">{x.total} <span className="text-slate-400 font-medium">({donutTotal ? Math.round((x.total / donutTotal) * 100) : 0}%)</span></b>
