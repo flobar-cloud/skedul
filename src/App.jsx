@@ -39,6 +39,21 @@ const CHIP_PALETTE = [
   "#D97706", // amber
   "#DB2777", // pink
   "#0891B2", // cyan
+  "#DC2626", // red
+  "#7C3AED", // violet
+  "#0D9488", // teal
+  "#CA8A04", // yellow-brown
+  "#EA580C", // orange
+  "#2563EB", // blue
+  "#65A30D", // lime-green
+  "#C026D3", // fuchsia
+  "#0369A1", // sky-dark
+  "#B91C1C", // brick red
+  "#4D7C0F", // olive
+  "#9333EA", // purple
+  "#0F766E", // deep teal
+  "#BE185D", // rose
+  "#3F6212", // dark olive
 ];
 
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -136,11 +151,19 @@ function posisiColor(posisi) {
 }
 // Warna per-ORANG (bukan per-posisi seperti posisiColor) -- dipakai di Dashboard/Planner/Team supaya
 // tiap anggota punya 1 warna konsisten sendiri (mis. selalu biru buat Andi, hijau buat Budi, dst).
+// Warna per-anggota di-assign berurutan begitu id-nya PERTAMA KALI terlihat (bukan hash), supaya
+// selama 20 palet cukup (mis. 18 RGE), semua orang dijamin dapat warna yang beda-beda -- hash bisa
+// tabrakan (banyak nomor WA berbagi awalan yang sama), assignment berurutan tidak.
+const _memberColorCache = {};
+let _memberColorNextIndex = 0;
 function memberColor(memberIdOrName) {
-  const s = String(memberIdOrName || "");
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return CHIP_PALETTE[h % CHIP_PALETTE.length];
+  const key = String(memberIdOrName || "");
+  if (!key) return CHIP_PALETTE[0];
+  if (_memberColorCache[key] === undefined) {
+    _memberColorCache[key] = CHIP_PALETTE[_memberColorNextIndex % CHIP_PALETTE.length];
+    _memberColorNextIndex++;
+  }
+  return _memberColorCache[key];
 }
 
 // ---------- Status kegiatan yang "hidup" (diturunkan dari tanggal/jam + status rencana/selesai yang
@@ -1027,7 +1050,7 @@ function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCur
     <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden"><div className="px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/70"><div><div className="font-extrabold text-slate-900">{monthLabel}</div><div className="text-[10px] text-slate-400 font-semibold">{weekKeys[0]} — {weekKeys[6]}</div></div><div className="flex items-center gap-3 text-[10px] font-bold text-slate-400"><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-500"/> Berjalan</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-rose-500"/> Perhatian</span></div></div>
       <div className="overflow-x-auto"><div className="min-w-[1180px]"><div className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-200 bg-white sticky top-0 z-10"><div className="p-3 text-[10px] font-black uppercase tracking-wider text-slate-400">Anggota Tim</div>{days.map((d,i)=>{const key=weekKeys[i];const isToday=key===today;const count=weekActivities.filter(a=>a.date===key).length;return <div key={key} className={`p-2.5 border-l border-slate-100 ${isToday?"bg-indigo-50":""}`}><div className={`text-[10px] font-black uppercase ${isToday?"text-indigo-600":"text-slate-400"}`}>{HARI[i]}</div><div className={`text-base font-black ${isToday?"text-indigo-700":"text-slate-800"}`}>{d.getDate()}</div><div className="text-[9px] text-slate-400">{count} kegiatan</div></div>})}</div>
-      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key,m.id)} className="w-full h-7 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center justify-center"><Plus size={13}/></button></div>})}</div>)}
+      {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key,m.id)} style={{borderColor:`${memberColor(m.id)}55`,background:`${memberColor(m.id)}14`,color:memberColor(m.id)}} className="w-full h-7 rounded-lg border hover:brightness-95 transition flex items-center justify-center"><Plus size={14} strokeWidth={2.75}/></button></div>})}</div>)}
       {visibleMembers.length===0&&<div className="p-10 text-center text-sm text-slate-400">Belum ada anggota tim.</div>}</div></div></div>
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className="flex items-center justify-between mb-3"><div><h3 className="font-extrabold text-sm text-slate-900">Status operasional minggu ini</h3><p className="text-[10px] text-slate-400">Progress dihitung dari status kegiatan yang sudah ada.</p></div><span className="text-lg font-black text-indigo-600">{completion}%</span></div><div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" style={{width:`${completion}%`}}/></div></div><div className="bg-slate-900 rounded-2xl p-4 shadow-sm text-white"><div className="flex items-center gap-2 mb-2"><Zap size={15} className="text-amber-300"/><h3 className="font-extrabold text-sm">Automation Ready</h3></div><p className="text-[10px] text-slate-300 leading-relaxed">Planner membaca status kegiatan yang sama dengan alur reminder dan report WhatsApp. Tidak ada field Firestore baru yang diperlukan.</p><div className="flex gap-2 mt-3"><span className="px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 text-[9px] font-bold">WA Gateway</span><span className="px-2 py-1 rounded-lg bg-violet-500/15 text-violet-300 text-[9px] font-bold">n8n</span></div></div></div>
   </div>;
@@ -2431,7 +2454,10 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
                       className={`text-left border-l border-slate-50 p-1 min-h-[40px] hover:bg-indigo-50/30 transition ${isToday ? "bg-indigo-50/30" : ""}`}
                     >
                       {dayActs.length === 0 ? (
-                        <span className="text-[9px] text-slate-500 italic">Free</span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className="w-4 h-4 rounded flex items-center justify-center shrink-0" style={{ background: `${memberColor(m.id)}18`, color: memberColor(m.id) }}><Plus size={10} strokeWidth={3} /></span>
+                          <span className="text-[9px] text-slate-500 italic">Free</span>
+                        </span>
                       ) : (
                         <div className="flex flex-col gap-0.5">
                           {dayActs.slice(0, 1).map((a) => {
