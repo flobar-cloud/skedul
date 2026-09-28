@@ -4,7 +4,7 @@ import {
   MessageCircle, Upload, Phone, Trash2, Send, Image as ImageIcon,
   Info, Calendar as CalendarIcon, Minus, BarChart2, Smartphone, Pencil, Building2, Wand2,
   Download, LayoutGrid, ClipboardList, LayoutDashboard, Bell, Search, Wifi, ArrowUpRight, CheckCircle2, AlertTriangle, Clock, Zap,
-  Settings, TrendingUp, Award, FileUp, ChevronDown, Home, UserCircle2, LogOut
+  Settings, TrendingUp, Award, FileUp, ChevronDown, Home, UserCircle2, LogOut, Package
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
@@ -63,6 +63,7 @@ const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus
 // seluruh halaman, mengikuti gaya referensi desain (chip kegiatan berwarna pastel per kategori).
 const CATEGORY_META = {
   "Branding":      { color: "#7C3AED", bg: "#F5F3FF", icon: Send },
+  "Req Branding":  { color: "#B45309", bg: "#FFFBEB", icon: Package },
   "DTU":           { color: "#2563EB", bg: "#EFF6FF", icon: Building2 },
   "Attack Desa":   { color: "#DC2626", bg: "#FEF2F2", icon: AlertTriangle },
   "Attack School": { color: "#059669", bg: "#ECFDF5", icon: CheckCircle2 },
@@ -73,15 +74,25 @@ function categoryMeta(label) {
   return CATEGORY_META[label] || { color: "#64748B", bg: "#F1F5F9", icon: LayoutGrid };
 }
 
-// Pemetaan region REGB (Regional Bali) / REGN (Regional Nusra) ke branch di bawahnya. Dipakai
-// sebagai acuan kalau nanti Rekap KPI / notifikasi WA butuh menampilkan gabungan beberapa branch
-// per regional head. Member dengan posisi REGB/REGN sebaiknya isi Branch = "BALI" atau "NUSRA".
+// Hierarki Planner: RGE (eksekutor kegiatan lapangan) + Markom Bali / Markom Nusra (pemantau, yang
+// juga memasukkan tugas Req Branding ke RGE). Markom Bali menggantikan label lama REGB, Markom
+// Nusra menggantikan REGN. BSM (fungsi Danop/BBM) TIDAK dipakai di Planner ini.
+const POSISI_OPSI = ["RGE", "Markom Bali", "Markom Nusra"];
+const LEGACY_POSISI_MAP = { REGB: "Markom Bali", REGN: "Markom Nusra" };
+function normalizePosisi(raw) {
+  const t = String(raw || "").trim();
+  return LEGACY_POSISI_MAP[t.toUpperCase()] || t;
+}
+function isPosisiAllowed(raw) {
+  return POSISI_OPSI.some((p) => p.toUpperCase() === normalizePosisi(raw).toUpperCase());
+}
+// Pemetaan region ke branch di bawahnya (acuan untuk Markom Bali / Markom Nusra).
 const REGION_BRANCHES = {
   BALI: ["Bali Barat", "Bali Timur"],
   NUSRA: ["Lombok Barat", "Lombok Timur", "Sumbawa", "Flores Barat", "Flores Timur", "Sumba", "Timor"],
 };
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
-const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding", "Event", "FWA"];
+const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding", "Req Branding", "Event", "FWA"];
 
 // Mengelompokkan variasi penulisan jenis kegiatan yang bebas/tidak konsisten (mis. "Attack Desa Seraya",
 // "attack desa marannu", "pasang matpro toko Sinar Jaya", "Reskin toko ABC") ke dalam 6 kategori BAKU
@@ -98,6 +109,10 @@ const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding", 
 const JENIS_KEYWORDS = [
   { match: ["attack sekolah", "attack school", "sekolah", "school"], label: "Attack School" },
   { match: ["attack"], label: "Attack Desa" },
+  {
+    match: ["req branding", "permintaan branding", "minta branding", "request branding", "cetak branding"],
+    label: "Req Branding",
+  },
   {
     match: [
       "branding", "brending", "brandi", "matpro", "poster", "shopsign", "shop sign",
@@ -193,6 +208,29 @@ function statusOf(activity, now = new Date()) {
   if (diffHours <= 3) return "berjalan";
   return "menunggu_report";
 }
+// SLA "Req Branding": dari tanggal permintaan (activity.date, diisi Markom) sampai RGE upload foto
+// serah terima (photos[] -- field yang SAMA yang sudah dipakai jalur WA/dokumentasi, jadi tidak perlu
+// field/collection baru). Target SLA: 5 hari kalender.
+const REQ_BRANDING_SLA_DAYS = 5;
+function reqBrandingSLA(activity) {
+  const photos = Array.isArray(activity?.photos) ? activity.photos : [];
+  const assignedDate = activity?.date;
+  const latestPhoto = [...photos].sort((a, b) => String(a.uploadedAt || "").localeCompare(String(b.uploadedAt || ""))).pop();
+  const msPerDay = 86400000;
+  if (!assignedDate) return { hasHandover: false, elapsedDays: null, onTime: null, statusLabel: "Tanggal permintaan belum diisi" };
+  const start = new Date(`${assignedDate}T00:00:00`);
+  if (latestPhoto?.uploadedAt) {
+    const completed = new Date(latestPhoto.uploadedAt);
+    const elapsedDays = Math.max(0, Math.round((new Date(completed.toDateString()) - start) / msPerDay));
+    const onTime = elapsedDays <= REQ_BRANDING_SLA_DAYS;
+    return { hasHandover: true, completedDate: completed, elapsedDays, onTime, statusLabel: onTime ? `Tepat waktu (${elapsedDays} hari)` : `Terlambat (${elapsedDays} hari, target ${REQ_BRANDING_SLA_DAYS} hari)` };
+  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const elapsedDays = Math.max(0, Math.round((today - start) / msPerDay));
+  const onTime = elapsedDays <= REQ_BRANDING_SLA_DAYS;
+  return { hasHandover: false, elapsedDays, onTime, statusLabel: onTime ? `Berjalan (hari ke-${elapsedDays} dari ${REQ_BRANDING_SLA_DAYS})` : `Terlambat (hari ke-${elapsedDays}, target ${REQ_BRANDING_SLA_DAYS} hari) — belum ada foto serah terima` };
+}
+
 function reportInfoForActivity(activity, member, rgeReports = []) {
   const categoryMap = { branding: "posm", posm: "posm", event: "event", dtu: "dtu", "attack desa": "desa", desa: "desa", "attack school": "school", school: "school", fwa: "fwa", nota: "nota" };
   const wanted = categoryMap[String(activity?.jenisKegiatan || "").toLowerCase()];
@@ -524,37 +562,61 @@ function TopHeader({ members, activities, onOpenMenu, onOpenActivity, onOpenMemb
 }
 
 // ---------- Notifikasi: agregasi item yang butuh perhatian di seluruh data (bukan cuma hari ini) ----------
-function NotifikasiPage({ activities, members, rgeReports, onOpen }) {
-  const now = new Date();
+// Satu sumber kebenaran untuk "butuh perhatian", dipakai baik oleh badge notifikasi (sidebar/header)
+// maupun halaman Notifikasi -- supaya angkanya selalu sama persis dengan isi listnya.
+// Req Branding SENGAJA dikeluarkan dari aturan overdue/report generik (kegiatan lapangan berbasis
+// jam), dan dicek pakai SLA 5 harinya sendiri supaya tidak dobel-hitung.
+function computeAttentionItems(activities, members, rgeReports) {
   const memberOf = (id) => members.find((m) => m.id === id);
-  const items = activities
-    .map((a) => ({ ...a, _status: statusOf(a, now), _report: reportInfoForActivity(a, memberOf(a.assignedMemberId), rgeReports) }))
-    .filter((a) => a._status === "overdue" || (a._status === "menunggu_report" && !a._report.received))
-    .sort((a, b) => `${b.date}${b.time || ""}`.localeCompare(`${a.date}${a.time || ""}`));
+  const now = new Date();
+  const items = [];
+  for (const a of activities) {
+    if (normalizeJenisKegiatan(a.jenisKegiatan) === "Req Branding") {
+      const sla = reqBrandingSLA(a);
+      if (sla.onTime === false) {
+        items.push({ id: a.id, activity: a, member: memberOf(a.assignedMemberId), kind: "req_branding_late", label: "SLA Req Branding Terlewat", color: "#DC2626", bg: "#FEF2F2", sortKey: String(a.date || "") });
+      }
+      continue;
+    }
+    const st = statusOf(a, now);
+    if (st === "overdue") {
+      items.push({ id: a.id, activity: a, member: memberOf(a.assignedMemberId), kind: "overdue", label: STATUS_META.overdue.label, color: STATUS_META.overdue.color, bg: STATUS_META.overdue.bg, sortKey: `${a.date || ""}${a.time || ""}` });
+    } else if (st === "menunggu_report") {
+      const rep = reportInfoForActivity(a, memberOf(a.assignedMemberId), rgeReports);
+      if (!rep.received) {
+        items.push({ id: a.id, activity: a, member: memberOf(a.assignedMemberId), kind: "report_pending", label: STATUS_META.menunggu_report.label, color: STATUS_META.menunggu_report.color, bg: STATUS_META.menunggu_report.bg, sortKey: `${a.date || ""}${a.time || ""}` });
+      }
+    }
+  }
+  return items.sort((x, y) => y.sortKey.localeCompare(x.sortKey));
+}
+
+function NotifikasiPage({ activities, members, rgeReports, onOpen }) {
+  const items = computeAttentionItems(activities, members, rgeReports);
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="text-2xl font-black tracking-tight text-slate-900">Notifikasi</h1>
-        <p className="text-sm text-slate-500 mt-1">Kegiatan overdue dan yang belum mengirim report WA, dari seluruh jadwal.</p>
+        <p className="text-sm text-slate-500 mt-1">Kegiatan overdue, report WA yang belum masuk, dan SLA Req Branding yang terlewat.</p>
       </div>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {items.length === 0 ? (
           <div className="p-10 text-center text-sm text-slate-400">Semua kegiatan aman, tidak ada yang butuh perhatian 🎉</div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {items.map((a) => {
-              const m = memberOf(a.assignedMemberId);
-              const meta = STATUS_META[a._status];
+            {items.map((it) => {
+              const a = it.activity;
+              const Icon = it.kind === "overdue" ? Clock : it.kind === "req_branding_late" ? Package : MessageCircle;
               return (
-                <button key={a.id} onClick={() => onOpen(a.id)} className="w-full px-5 py-3.5 flex items-center gap-3 text-left hover:bg-slate-50 transition">
-                  <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: meta.bg, color: meta.color }}>
-                    {a._status === "overdue" ? <Clock size={16} /> : <MessageCircle size={16} />}
+                <button key={it.id} onClick={() => onOpen(it.id)} className="w-full px-5 py-3.5 flex items-center gap-3 text-left hover:bg-slate-50 transition">
+                  <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: it.bg, color: it.color }}>
+                    <Icon size={16} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-bold text-slate-800 truncate">{a.title}</span>
-                    <span className="block text-xs text-slate-400 truncate">{m?.name || "Tanpa PIC"} · {a.date}{a.time ? ` · ${a.time}` : ""}</span>
+                    <span className="block text-xs text-slate-400 truncate">{it.member?.name || "Tanpa PIC"} · {a.date}{a.time ? ` · ${a.time}` : ""}</span>
                   </span>
-                  <span className="text-[11px] font-bold shrink-0" style={{ color: meta.color }}>{meta.label}</span>
+                  <span className="text-[11px] font-bold shrink-0" style={{ color: it.color }}>{it.label}</span>
                   <ArrowUpRight size={15} className="text-slate-300 shrink-0" />
                 </button>
               );
@@ -727,15 +789,17 @@ export default function PapanKegiatan() {
       for (const row of rows) {
         const phone = String(norm(row, ["nomor wa", "phone", "no wa", "whatsapp"])).replace(/\D/g, "");
         if (!phone) { skipped++; continue; }
+        const posisi = normalizePosisi(norm(row, ["posisi", "position"]) || "RGE");
+        if (!isPosisiAllowed(posisi)) { skipped++; continue; } // mis. BSM: tidak dibawa ke Planner
         await addMember({
           name: norm(row, ["nama", "name"]),
           phone,
           branch: norm(row, ["branch"]),
-          posisi: norm(row, ["posisi", "position"]) || "RGE",
+          posisi,
         });
         ok++;
       }
-      notify(`Import selesai: ${ok} anggota tersimpan${skipped ? `, ${skipped} baris dilewati (nomor WA kosong)` : ""}.`);
+      notify(`Import selesai: ${ok} anggota tersimpan${skipped ? `, ${skipped} baris dilewati (nomor WA kosong / posisi bukan RGE, Markom Bali, Markom Nusra)` : ""}.`);
     } catch (err) {
       console.error("Gagal import Excel:", err);
       notify("Gagal membaca file Excel. Pastikan formatnya .xlsx dengan kolom Nama/Nomor WA/Branch/Posisi.");
@@ -819,15 +883,7 @@ export default function PapanKegiatan() {
 
   const todaysActivities = activitiesByDate[todayKey()] || [];
 
-  const notifCount = activities.reduce((n, a) => {
-    const st = statusOf(a);
-    if (st === "overdue") return n + 1;
-    if (st === "menunggu_report") {
-      const rep = reportInfoForActivity(a, memberById(a.assignedMemberId), rgeReports);
-      if (!rep.received) return n + 1;
-    }
-    return n;
-  }, 0);
+  const notifCount = computeAttentionItems(activities, members, rgeReports).length;
 
   if (!ready) {
     return <div className="min-h-screen flex items-center justify-center text-slate-400 font-medium">Memuat papan kegiatan…</div>;
@@ -903,7 +959,7 @@ export default function PapanKegiatan() {
                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
                 <p className="text-sm text-slate-500 mt-1">Target vs pencapaian bulanan per RGE.</p>
               </div>
-              <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} />
+              <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} activities={activities} onOpenActivity={(id) => setDetailId(id)} />
             </div>
           )}
 
@@ -1154,13 +1210,17 @@ function AddActivityModal({ initialDate, initialMemberId, members, onClose, onSa
   const [time, setTime] = useState("");
   const [description, setDescription] = useState("");
   const [jenisKegiatan, setJenisKegiatan] = useState("");
-  const [assignedMemberId, setAssignedMemberId] = useState(initialMemberId || members[0]?.id || "");
+  const rgeOnly = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  const assignableMembers = rgeOnly.length ? rgeOnly : members; // jaga-jaga kalau posisi belum konsisten
+  const [assignedMemberId, setAssignedMemberId] = useState(initialMemberId || assignableMembers[0]?.id || "");
+  const [handoverTo, setHandoverTo] = useState("");
+  const isReqBranding = jenisKegiatan === "Req Branding";
   return (
     <Modal onClose={onClose} width={420}>
       <ModalHeader title="Tambah Kegiatan" onClose={onClose} icon={<Plus size={18} />} />
       <div className="p-5 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Tanggal *"><input type="date" required style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label={isReqBranding ? "Tanggal Permintaan *" : "Tanggal *"}><input type="date" required style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           <Field label="Jam *"><input type="time" required style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
         </div>
         <Field label="Judul kegiatan">
@@ -1172,15 +1232,33 @@ function AddActivityModal({ initialDate, initialMemberId, members, onClose, onSa
             {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
           </select>
         </Field>
+        {isReqBranding && (
+          <>
+            <Field label="Diserahkan ke *">
+              <select required style={inputStyle} value={handoverTo} onChange={(e) => setHandoverTo(e.target.value)}>
+                <option value="" disabled>Pilih penerima…</option>
+                <option value="DSE">DSE</option>
+                <option value="RSE">RSE</option>
+                <option value="Depo">Depo</option>
+              </select>
+            </Field>
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 -mt-1">
+              SLA permintaan branding: <b>5 hari</b> sejak tanggal permintaan ini sampai RGE upload foto serah terima. Durasinya dihitung otomatis di tab Pencapaian KPI begitu foto masuk.
+            </p>
+          </>
+        )}
         <Field label="Deskripsi (opsional)">
           <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <Field label="Penanggung jawab">
+        <Field label={isReqBranding ? "RGE yang menyerahkan" : "Penanggung jawab"}>
           <select style={inputStyle} value={assignedMemberId} onChange={(e) => setAssignedMemberId(e.target.value)}>
-            {members.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
+            {assignableMembers.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
           </select>
         </Field>
-        <PrimaryBtn disabled={!title.trim() || !date || !time || !jenisKegiatan} onClick={() => onSave({ title: title.trim(), date, time, description, jenisKegiatan, assignedMemberId })}>Simpan Kegiatan</PrimaryBtn>
+        <PrimaryBtn
+          disabled={!title.trim() || !date || !time || !jenisKegiatan || (isReqBranding && !handoverTo)}
+          onClick={() => onSave({ title: title.trim(), date, time, description, jenisKegiatan, assignedMemberId, ...(isReqBranding ? { handoverTo } : {}) })}
+        >Simpan Kegiatan</PrimaryBtn>
       </div>
     </Modal>
   );
@@ -1225,7 +1303,9 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
 
   if (!activity) return null;
   const chipColor = posisiColor(member?.posisi);
-  const reportInfo = reportInfoForActivity(activity, member, rgeReports);
+  const reportInfo = normalizeJenisKegiatan(activity.jenisKegiatan) === "Req Branding"
+    ? { ...reportInfoForActivity(activity, member, rgeReports), received: Boolean(activity.photos?.length), photo: Boolean(activity.photos?.length) }
+    : reportInfoForActivity(activity, member, rgeReports);
   const reportSteps = [
     ["Jadwal", true],
     ["Reminder WA", true],
@@ -1380,7 +1460,7 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
             {members && (
               <Field label="Penanggung jawab">
                 <select style={inputStyle} value={editMemberId} onChange={(e) => setEditMemberId(e.target.value)}>
-                  {members.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
+                  {members.filter((m) => (m.posisi || "RGE") === "RGE").map((m) => <option key={m.id} value={m.id}>{m.name} — {m.posisi}</option>)}
                 </select>
               </Field>
             )}
@@ -1416,6 +1496,17 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
         {activity.description && <p className="text-sm text-slate-700 leading-relaxed">{activity.description}</p>}
 
         {reportChain}
+
+        {normalizeJenisKegiatan(activity.jenisKegiatan) === "Req Branding" && (() => {
+          const sla = reqBrandingSLA(activity);
+          return (
+            <div className="rounded-2xl border p-4" style={{ borderColor: sla.onTime === false ? "#FECACA" : "#FDE68A", background: sla.onTime === false ? "#FEF2F2" : "#FFFBEB" }}>
+              <div className="flex items-center gap-2 mb-1"><Package size={15} style={{ color: sla.onTime === false ? "#DC2626" : "#B45309" }} /><span className="text-xs font-black" style={{ color: sla.onTime === false ? "#DC2626" : "#B45309" }}>SLA Req Branding — target {REQ_BRANDING_SLA_DAYS} hari</span></div>
+              <div className="text-xs text-slate-600">Diserahkan ke: <b>{activity.handoverTo || "—"}</b></div>
+              <div className="text-xs text-slate-600 mt-0.5">Status: <b>{sla.statusLabel}</b></div>
+            </div>
+          );
+        })()}
 
         {kategoriHasilAktif && (
           <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2">
@@ -1550,16 +1641,12 @@ function MemberRow({ member, onRemove, onEdit }) {
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Branch">
-            <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Cth: Flores Barat IM3 (CSE/RSE/BSM) atau Flores Barat saja (RGE dual-brand)" />
+            <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Cth: Flores Barat" />
           </Field>
           <Field label="Posisi">
             <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
-              <option value="RGE">RGE</option>
-              <option value="CSE">CSE</option>
-              <option value="RSE">RSE</option>
-              <option value="BSM">BSM</option>
-              <option value="REGB">REGB</option>
-              <option value="REGN">REGN</option>
+              {!POSISI_OPSI.includes(posisi) && <option value={posisi}>{posisi} (lama)</option>}
+              {POSISI_OPSI.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
         </div>
@@ -1612,16 +1699,13 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Branch">
-              <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Cth: Flores Barat IM3 (CSE/RSE/BSM) atau Flores Barat saja (RGE dual-brand)" />
+              <input style={inputStyle} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Cth: Flores Barat" />
             </Field>
             <Field label="Posisi">
               <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
                 <option value="RGE">RGE (eksekutor kegiatan &amp; dokumentasi)</option>
-                <option value="CSE">CSE (eksekutor kegiatan di outlet/toko)</option>
-                <option value="RSE">RSE (eksekutor kegiatan di outlet/toko)</option>
-                <option value="BSM">BSM (Manager / pimpinan branch)</option>
-                <option value="REGB">REGB (Regional Head — wilayah Bali)</option>
-                <option value="REGN">REGN (Regional Head — wilayah Nusra)</option>
+                <option value="Markom Bali">Markom Bali (pemantau wilayah Bali)</option>
+                <option value="Markom Nusra">Markom Nusra (pemantau wilayah Nusra)</option>
               </select>
             </Field>
           </div>
@@ -1643,7 +1727,7 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
 // ---------- WhatsApp Simulator Modal ----------
 function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploadResult }) {
   const [tab, setTab] = useState("jadwal");
-  const [senderId, setSenderId] = useState(members[0]?.id || "");
+  const [senderId, setSenderId] = useState(members.find((m) => (m.posisi || "RGE") === "RGE")?.id || members[0]?.id || "");
   const [date, setDate] = useState(todayKey());
   const [time, setTime] = useState("");
   const [title, setTitle] = useState("");
@@ -1698,7 +1782,7 @@ function WhatsAppSimModal({ members, activities, onClose, onNewSchedule, onUploa
       <div className="p-5 flex flex-col gap-3">
         <Field label="Nomor pengirim (mensimulasikan nomor WA)">
           <select style={inputStyle} value={senderId} onChange={(e) => setSenderId(e.target.value)}>
-            {members.map((m) => <option key={m.id} value={m.id}>{m.phone} — {m.name} ({m.posisi})</option>)}
+            {members.filter((m) => (m.posisi || "RGE") === "RGE").map((m) => <option key={m.id} value={m.id}>{m.phone} — {m.name} ({m.posisi})</option>)}
           </select>
         </Field>
 
@@ -2211,12 +2295,22 @@ function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
   );
 }
 
-function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget }) {
+function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget, activities = [], onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [editMember, setEditMember] = useState(null);
   const monthKey = monthKeyOf(cursor);
 
   const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+
+  // Item KPI ke-6: "Req Branding" -- permintaan cetak dari Markom sampai RGE serah-terima ke
+  // DSE/RSE/Depo (dibuktikan foto). SLA 5 hari, dihitung dari activity.date s/d timestamp foto
+  // terakhir (lihat reqBrandingSLA). Di-scope ke bulan yang sedang dilihat, sama seperti sisa
+  // halaman ini, berdasarkan tanggal permintaannya.
+  const reqBrandingRows = activities
+    .filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === "Req Branding" && String(a.date || "").startsWith(monthKey))
+    .map((a) => ({ activity: a, member: members.find((m) => m.id === a.assignedMemberId), sla: reqBrandingSLA(a) }))
+    .sort((a, b) => String(a.activity.date).localeCompare(String(b.activity.date)));
+  const reqBrandingLate = reqBrandingRows.filter((r) => r.sla.onTime === false).length;
 
   const rows = rgeMembers.map((m) => {
     const target = kpiTargets.find((t) => t.memberId === m.id && t.monthKey === monthKey) || {};
@@ -2354,6 +2448,42 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget }) {
         </table>
       </div>
       {rgeMembers.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada anggota dengan posisi RGE.</p>}
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mt-5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2"><Package size={16} className="text-amber-600" /><h3 className="font-bold text-slate-900">Req Branding — SLA Serah Terima</h3></div>
+          {reqBrandingLate > 0 && <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-full">{reqBrandingLate} terlambat</span>}
+        </div>
+        <p className="text-[11px] text-slate-400 mb-3">Permintaan branding dari Markom Bali/Nusra ke RGE bulan ini. Target SLA {REQ_BRANDING_SLA_DAYS} hari sejak tanggal permintaan sampai foto serah terima ke DSE/RSE/Depo di-upload.</p>
+        {reqBrandingRows.length === 0 ? (
+          <p className="text-sm text-slate-400 italic">Belum ada permintaan Req Branding bulan ini.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-left">
+                  <th className="border border-slate-200 px-2.5 py-2">Tgl Permintaan</th>
+                  <th className="border border-slate-200 px-2.5 py-2">RGE</th>
+                  <th className="border border-slate-200 px-2.5 py-2">Diserahkan ke</th>
+                  <th className="border border-slate-200 px-2.5 py-2">Tgl Serah Terima</th>
+                  <th className="border border-slate-200 px-2.5 py-2">Status SLA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reqBrandingRows.map(({ activity, member, sla }) => (
+                  <tr key={activity.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onOpenActivity?.(activity.id)}>
+                    <td className="border border-slate-200 px-2.5 py-2">{activity.date}</td>
+                    <td className="border border-slate-200 px-2.5 py-2 font-semibold text-slate-700">{member?.name || "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-2">{activity.handoverTo || "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-2">{sla.completedDate ? sla.completedDate.toISOString().slice(0, 10) : "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-2 font-bold" style={{ color: sla.onTime === false ? "#DC2626" : sla.hasHandover ? "#059669" : "#B45309" }}>{sla.statusLabel}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {editMember && (
         <TargetKPIModal
@@ -2493,7 +2623,10 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
   const memberOf = (id) => members.find((m) => m.id === id);
   const withStatus = activities.map((a) => {
     const m = memberOf(a.assignedMemberId);
-    const report = reportInfoForActivity(a, m, rgeReports);
+    const isReqBranding = normalizeJenisKegiatan(a.jenisKegiatan) === "Req Branding";
+    const report = isReqBranding
+      ? { ...reportInfoForActivity(a, m, rgeReports), received: Boolean(a.photos?.length) }
+      : reportInfoForActivity(a, m, rgeReports);
     return { ...a, _status: statusOf(a, now), _report: report };
   });
   const todays = withStatus.filter((a) => a.date === today).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
