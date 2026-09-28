@@ -944,13 +944,7 @@ export default function PapanKegiatan() {
           )}
 
           {mainTab === "galeriBranch" && (
-            <div className="flex flex-col gap-4">
-              <div>
-                <h1 className="text-2xl font-black tracking-tight text-slate-900">Laporan & Rekap</h1>
-                <p className="text-sm text-slate-500 mt-1">Galeri foto laporan RGE per branch, dari grup WhatsApp.</p>
-              </div>
-              <GaleriPerBranch members={members} rgeReports={rgeReports} />
-            </div>
+            <LaporanRekapPage activities={activities} members={members} rgeReports={rgeReports} onOpenActivity={(id) => setDetailId(id)} />
           )}
 
           {mainTab === "rekapKPI" && (
@@ -2034,11 +2028,12 @@ function SummaryCharts({ activities, members, cursor, onOpenActivity }) {
 }
 
 // ---------- Galeri Dokumentasi: post-it wall of photos from WA & web uploads ----------
-function GaleriFoto({ activities, members, cursor, onOpen }) {
+function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
   const photos = [];
   activities.forEach((a) => {
     if (!a.date || !a.date.startsWith(monthPrefix)) return;
+    if (branchFilter && members.find((m) => m.id === a.assignedMemberId)?.branch !== branchFilter) return;
     (a.photos || []).forEach((ph) => {
       photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId, hasil: a.hasil });
     });
@@ -2127,6 +2122,52 @@ function ringkasanLaporan(r) {
   if (cat === "nota") return [spIM3 ? `SP IM3 ${spIM3}` : null, sp3ID ? `SP 3ID ${sp3ID}` : null, (r.Nominal || r.nominal) ? `Rp${Number(r.Nominal || r.nominal).toLocaleString("id-ID")}` : null].filter(Boolean).join(" · ");
   return r.RawCaption || r.rawCaption || "";
 }
+// ---------- Laporan & Rekap: 2 tab -- Galeri Kegiatan (foto dokumentasi di activities[].photos, dari WA
+// atau upload web) dan Laporan WA per Branch (rgeReports). Galeri Kegiatan bisa difilter per branch. ----------
+function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
+  const [tab, setTab] = useState("kegiatan");
+  const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
+  const [branch, setBranch] = useState(null); // null = semua branch
+  const branches = Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))).sort();
+  const prevMonth = () => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }));
+  const nextMonth = () => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }));
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">Laporan & Rekap</h1>
+          <p className="text-sm text-slate-500 mt-1">Foto dokumentasi kegiatan dan laporan RGE dari grup WhatsApp.</p>
+        </div>
+        <div className="flex gap-1.5 bg-slate-100 border border-slate-200 rounded-xl p-1 self-start">
+          {[["kegiatan", "Galeri Kegiatan"], ["laporan", "Laporan WA per Branch"]].map(([k, label]) => (
+            <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${tab === k ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {tab === "kegiatan" ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2 justify-between">
+            <div className="flex flex-wrap gap-1.5">
+              {[null, ...branches].map((b) => (
+                <button key={b || "all"} onClick={() => setBranch(b)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${b === branch ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{b || "Semua Branch"}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <IconBtn onClick={prevMonth} title="Bulan sebelumnya"><ChevronLeft size={16} /></IconBtn>
+              <span className="text-xs font-bold text-slate-700 min-w-[110px] text-center">{BULAN[cursor.m]} {cursor.y}</span>
+              <IconBtn onClick={nextMonth} title="Bulan berikutnya"><ChevronRight size={16} /></IconBtn>
+            </div>
+          </div>
+          <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={onOpenActivity} branchFilter={branch} />
+        </div>
+      ) : (
+        <GaleriPerBranch members={members} rgeReports={rgeReports} />
+      )}
+    </div>
+  );
+}
+
 function GaleriPerBranch({ members, rgeReports }) {
   // Branch diambil dinamis dari data anggota RGE yang ada, bukan di-hardcode -- otomatis
   // menyesuaikan berapa pun jumlah branch yang sebenarnya ada di sheet Member.
@@ -2712,7 +2753,7 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
           <div className="absolute right-16 -bottom-20 w-52 h-52 rounded-full bg-fuchsia-400/10" />
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(to top, rgba(15,23,42,0.9), transparent 55%)" }} />
           <div className="relative">
-            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">{greetingNow()}, Admin 👋</h2>
+            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">{greetingNow()}, Markom BN 👋</h2>
             <p className="text-indigo-100 text-xs sm:text-sm mt-1 max-w-md">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
           </div>
         </section>
