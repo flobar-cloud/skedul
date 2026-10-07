@@ -313,10 +313,13 @@ function GhostBtn({ onClick, children, style, className = "" }) {
     </button>
   );
 }
-function Field({ label, children }) {
+function Field({ label, required = false, children }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
-      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</span>
+      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+        {label}
+        {required && <span className="normal-case tracking-normal font-bold text-rose-600">· Wajib diisi</span>}
+      </span>
       {children}
     </label>
   );
@@ -1080,13 +1083,18 @@ export default function PapanKegiatan() {
 // ---------- Weekly Planner: operational timeline untuk seluruh tim ----------
 function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCursor, onOpenActivity, onAddActivity, onViewChange }) {
   const [memberFilter, setMemberFilter] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [query, setQuery] = useState("");
   const weekStart = new Date(weekCursor); weekStart.setHours(0,0,0,0);
   const days = Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);return d;});
   const weekKeys=days.map(d=>dateKey(d.getFullYear(),d.getMonth(),d.getDate())); const today=todayKey();
-  const teamMembers=members.filter(m=>(m.posisi||"RGE")==="RGE"); const visibleMembers=teamMembers.length?teamMembers:members;
+  const teamMembers=members.filter(m=>(m.posisi||"RGE")==="RGE"); const baseMembers=teamMembers.length?teamMembers:members;
+  // Filter branch mengurangi JUMLAH BARIS anggota yang dirender (bukan cuma kegiatan di dalam sel),
+  // supaya tabel bisa muat tanpa perlu scroll ke bawah kalau tim-nya besar.
+  const branches=Array.from(new Set(baseMembers.filter(m=>m.branch).map(m=>m.branch))).sort();
+  const visibleMembers=branchFilter==="all"?baseMembers:baseMembers.filter(m=>m.branch===branchFilter);
   const memberMap=Object.fromEntries(members.map(m=>[m.id,m]));
   const filtered=activities.filter(a=>{const mem=memberMap[a.assignedMemberId];if(!weekKeys.includes(a.date))return false;if(memberFilter!=="all"&&a.assignedMemberId!==memberFilter)return false;const st=statusOf(a);if(statusFilter!=="all"&&st!==statusFilter)return false;if(typeFilter!=="all"&&normalizeJenisKegiatan(a.jenisKegiatan)!==typeFilter)return false;if(query.trim()){const hay=`${a.title||""} ${a.location||""} ${mem?.name||""} ${mem?.branch||""}`.toLowerCase();if(!hay.includes(query.trim().toLowerCase()))return false;}return true;});
   const byMemberDay=(id,key)=>filtered.filter(a=>a.assignedMemberId===id&&a.date===key).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
@@ -1097,7 +1105,7 @@ function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCur
   return <div className="space-y-5">
     <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4"><div><div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-indigo-500"/><span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-indigo-600">Team Operations</span></div><h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Weekly Planner</h1><p className="text-sm text-slate-500 mt-1">Pantau 18 anggota dalam satu timeline — jadwal, eksekusi, dan report WA.</p></div><div className="flex items-center gap-2"><button onClick={() => onViewChange("monthly")} className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600">Kalender Bulanan</button><GhostBtn onClick={goToday}>Hari ini</GhostBtn><IconBtn onClick={()=>moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={18}/></IconBtn><IconBtn onClick={()=>moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={18}/></IconBtn></div></div>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[["Total kegiatan",weekTotal,"Minggu ini","text-slate-900","bg-slate-100"],["Selesai",weekDone,`${completion}% completion`,"text-emerald-600","bg-emerald-50"],["Perlu perhatian",weekPending,"Overdue + report","text-rose-600","bg-rose-50"],["Tim aktif",new Set(weekActivities.map(a=>a.assignedMemberId).filter(Boolean)).size,`${visibleMembers.length} anggota terdaftar`,"text-indigo-600","bg-indigo-50"]].map(([label,value,sub,text,bg])=><div key={label} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><div className={`w-8 h-8 rounded-xl ${bg} flex items-center justify-center mb-3`}><span className={`font-black ${text}`}>•</span></div><div className={`text-2xl font-black ${text}`}>{value}</div><div className="text-xs font-bold text-slate-700 mt-0.5">{label}</div><div className="text-[10px] text-slate-400 mt-1">{sub}</div></div>)}</div>
-    <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
+    <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm"><div className="flex flex-col lg:flex-row gap-2"><div className="relative flex-1 min-w-[220px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari kegiatan, PIC, lokasi…" className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"/></div><select value={branchFilter} onChange={e=>{setBranchFilter(e.target.value);setMemberFilter("all");}} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua branch</option>{branches.map(b=><option key={b} value={b}>{b}</option>)}</select><select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua anggota</option>{visibleMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white"><option value="all">Semua kegiatan</option>{JENIS_KEGIATAN_OPSI.map(x=><option key={x} value={x}>{x}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 bg-white">{statusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div>
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden"><div className="px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/70"><div><div className="font-extrabold text-slate-900">{monthLabel}</div><div className="text-[10px] text-slate-400 font-semibold">{weekKeys[0]} — {weekKeys[6]}</div></div><div className="flex items-center gap-3 text-[10px] font-bold text-slate-400"><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-500"/> Berjalan</span><span className="flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-rose-500"/> Perhatian</span></div></div>
       <div className="overflow-x-auto"><div className="min-w-[1180px]"><div className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-200 bg-white sticky top-0 z-10"><div className="p-3 text-[10px] font-black uppercase tracking-wider text-slate-400">Anggota Tim</div>{days.map((d,i)=>{const key=weekKeys[i];const isToday=key===today;const count=weekActivities.filter(a=>a.date===key).length;return <div key={key} className={`p-2.5 border-l border-slate-100 ${isToday?"bg-indigo-50":""}`}><div className={`text-[10px] font-black uppercase ${isToday?"text-indigo-600":"text-slate-400"}`}>{HARI[i]}</div><div className={`text-base font-black ${isToday?"text-indigo-700":"text-slate-800"}`}>{d.getDate()}</div><div className="text-[9px] text-slate-400">{count} kegiatan</div></div>})}</div>
       {visibleMembers.map(m=><div key={m.id} className="grid grid-cols-[190px_repeat(7,minmax(140px,1fr))] border-b border-slate-100 last:border-b-0 min-h-[122px]"><div className="p-3 bg-slate-50/60 flex items-start gap-2.5 sticky left-0 z-[1] border-r border-slate-100"><span className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{background:memberColor(m.id)}}>{(m.name||"?").slice(0,1).toUpperCase()}</span><div className="min-w-0"><div className="font-extrabold text-xs text-slate-800 truncate">{m.name}</div><div className="text-[9px] text-slate-400 truncate mt-0.5">{m.branch||"Tanpa branch"}</div><div className="text-[9px] text-indigo-500 font-bold mt-1">{m.posisi||"RGE"}</div></div></div>{weekKeys.map((key)=>{const dayActs=byMemberDay(m.id,key);const isToday=key===today;return <div key={key} className={`border-l border-slate-100 p-1.5 space-y-1 ${isToday?"bg-indigo-50/40":"bg-white"}`}>{dayActs.map(a=>{const st=statusOf(a);const meta=STATUS_META[st];return <button key={a.id} onClick={()=>onOpenActivity(a.id)} title={`${a.title} · ${meta.label}`} className="w-full text-left rounded-xl border p-2 hover:shadow-sm transition bg-white" style={{borderColor:`${meta.color}40`,borderLeftWidth:3,borderLeftColor:meta.color}}><div className="flex items-center justify-between gap-1"><span className="text-[9px] font-black" style={{color:meta.color}}>{a.time||"—"}</span>{a.photos?.length>0&&<Camera size={10} className="text-slate-400"/>}</div><div className="text-[10px] font-bold text-slate-700 leading-tight mt-1">{a.title}</div><div className="mt-1.5 flex items-center gap-1"><span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{color:meta.color,background:meta.bg}}>{meta.label}</span></div></button>})}<button onClick={()=>onAddActivity(key,m.id)} style={{borderColor:`${memberColor(m.id)}55`,background:`${memberColor(m.id)}14`,color:memberColor(m.id)}} className="w-full h-7 rounded-lg border hover:brightness-95 transition flex items-center justify-center"><Plus size={14} strokeWidth={2.75}/></button></div>})}</div>)}
@@ -1214,13 +1222,13 @@ function AddActivityModal({ initialDate, initialMemberId, members, onClose, onSa
       <ModalHeader title="Tambah Kegiatan" onClose={onClose} icon={<Plus size={18} />} />
       <div className="p-5 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-2">
-          <Field label={isReqBranding ? "Tanggal Permintaan *" : "Tanggal *"}><input type="date" required style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Jam *"><input type="time" required style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+          <Field label={isReqBranding ? "Tanggal Permintaan" : "Tanggal"} required><input type="date" required style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Jam" required><input type="time" required style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
         </div>
-        <Field label="Judul kegiatan">
+        <Field label="Judul kegiatan" required>
           <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Attack Desa Wolomeze" />
         </Field>
-        <Field label="Jenis kegiatan *">
+        <Field label="Jenis kegiatan" required>
           <select required style={inputStyle} value={jenisKegiatan} onChange={(e) => setJenisKegiatan(e.target.value)}>
             <option value="" disabled>Pilih jenis kegiatan…</option>
             {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
@@ -1228,7 +1236,7 @@ function AddActivityModal({ initialDate, initialMemberId, members, onClose, onSa
         </Field>
         {isReqBranding && (
           <>
-            <Field label="Diserahkan ke *">
+            <Field label="Diserahkan ke" required>
               <select required style={inputStyle} value={handoverTo} onChange={(e) => setHandoverTo(e.target.value)}>
                 <option value="" disabled>Pilih penerima…</option>
                 <option value="DSE">DSE</option>
@@ -1436,10 +1444,10 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
 
         {showEdit && (
           <div className="flex flex-col gap-2 bg-slate-50 rounded-lg p-3">
-            <Field label="Judul kegiatan">
+            <Field label="Judul kegiatan" required>
               <input style={inputStyle} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             </Field>
-            <Field label="Jenis kegiatan *">
+            <Field label="Jenis kegiatan" required>
               <select required style={inputStyle} value={JENIS_KEGIATAN_OPSI.includes(editJenis) ? editJenis : ""} onChange={(e) => setEditJenis(e.target.value)}>
                 <option value="" disabled>Pilih jenis kegiatan…</option>
                 {JENIS_KEGIATAN_OPSI.map((j) => <option key={j} value={j}>{j}</option>)}
@@ -2028,14 +2036,15 @@ function SummaryCharts({ activities, members, cursor, onOpenActivity }) {
 }
 
 // ---------- Galeri Dokumentasi: post-it wall of photos from WA & web uploads ----------
-function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null }) {
+function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, jenisFilter = null }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
   const photos = [];
   activities.forEach((a) => {
     if (!a.date || !a.date.startsWith(monthPrefix)) return;
     if (branchFilter && members.find((m) => m.id === a.assignedMemberId)?.branch !== branchFilter) return;
+    if (jenisFilter && normalizeJenisKegiatan(a.jenisKegiatan) !== jenisFilter) return;
     (a.photos || []).forEach((ph) => {
-      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId, hasil: a.hasil });
+      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId, hasil: a.hasil, jenisKegiatan: normalizeJenisKegiatan(a.jenisKegiatan) });
     });
   });
   photos.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
@@ -2044,10 +2053,10 @@ function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null }
     <div>
       <div className="flex items-center gap-2 mb-4">
         <Camera size={17} className="text-indigo-600" />
-        <h3 className="font-bold text-base text-slate-900">Galeri Dokumentasi — {BULAN[cursor.m]} {cursor.y}</h3>
+        <h3 className="font-bold text-base text-slate-900">Galeri Dokumentasi — {BULAN[cursor.m]} {cursor.y}{jenisFilter ? ` · ${jenisFilter}` : ""}</h3>
       </div>
       {photos.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">Belum ada foto dokumentasi kegiatan bulan ini.</p>
+        <p className="text-sm text-slate-400 italic">Belum ada foto dokumentasi {jenisFilter ? `kegiatan ${jenisFilter} ` : "kegiatan "}bulan ini{branchFilter ? ` di branch ${branchFilter}` : ""}.</p>
       ) : (
         <div
           className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-8 p-4 rounded-xl"
@@ -2128,6 +2137,7 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
   const [tab, setTab] = useState("kegiatan");
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branch, setBranch] = useState(null); // null = semua branch
+  const [jenis, setJenis] = useState(null); // null = semua jenis kegiatan
   const branches = Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))).sort();
   const prevMonth = () => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }));
   const nextMonth = () => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }));
@@ -2146,7 +2156,7 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
       </div>
 
       {tab === "kegiatan" ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2 justify-between">
             <div className="flex flex-wrap gap-1.5">
               {[null, ...branches].map((b) => (
@@ -2159,7 +2169,13 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
               <IconBtn onClick={nextMonth} title="Bulan berikutnya"><ChevronRight size={16} /></IconBtn>
             </div>
           </div>
-          <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={onOpenActivity} branchFilter={branch} />
+          <div className="flex flex-wrap gap-1.5 pt-1 border-t border-slate-100">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 self-center mr-1">Jenis:</span>
+            {[null, ...JENIS_KEGIATAN_OPSI].map((j) => (
+              <button key={j || "all"} onClick={() => setJenis(j)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${j === jenis ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{j || "Semua Jenis"}</button>
+            ))}
+          </div>
+          <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={onOpenActivity} branchFilter={branch} jenisFilter={jenis} />
         </div>
       ) : (
         <GaleriPerBranch members={members} rgeReports={rgeReports} />
@@ -2175,11 +2191,16 @@ function GaleriPerBranch({ members, rgeReports }) {
     new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))
   ).sort();
   const [activeBranch, setActiveBranch] = useState(null);
+  const [activeKategori, setActiveKategori] = useState(null); // null = semua jenis kegiatan
   const effectiveBranch = activeBranch && branches.includes(activeBranch) ? activeBranch : branches[0];
 
-  const photos = rgeReports
+  const photosBranch = rgeReports
     .filter((r) => r.Branch === effectiveBranch || r.branch === effectiveBranch)
-    .filter((r) => r.FotoURL || r.fotoUrl)
+    .filter((r) => r.FotoURL || r.fotoUrl);
+  // Daftar kategori filter diambil dari kategori yang benar-benar ada di branch ini, jadi tidak ada
+  // tombol filter untuk kategori yang kosong/tidak relevan.
+  const kategoriTersedia = Array.from(new Set(photosBranch.map((r) => r.Kategori || r.category).filter(Boolean)));
+  const photos = (activeKategori ? photosBranch.filter((r) => (r.Kategori || r.category) === activeKategori) : photosBranch)
     .sort((a, b) => String(b.Timestamp || b.receivedAt || "").localeCompare(String(a.Timestamp || a.receivedAt || "")));
 
   if (branches.length === 0) {
@@ -2192,20 +2213,34 @@ function GaleriPerBranch({ members, rgeReports }) {
         <LayoutGrid size={17} className="text-indigo-600" />
         <h3 className="font-bold text-base text-slate-900">Galeri Laporan per Branch</h3>
       </div>
-      <div className="flex flex-wrap gap-1.5 mb-4">
+      <div className="flex flex-wrap gap-1.5 mb-3">
         {branches.map((b) => (
           <button
             key={b}
-            onClick={() => setActiveBranch(b)}
+            onClick={() => { setActiveBranch(b); setActiveKategori(null); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${b === effectiveBranch ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
           >
             {b}
           </button>
         ))}
       </div>
+      {kategoriTersedia.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4 pt-3 border-t border-slate-100">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 self-center mr-1">Jenis:</span>
+          {[null, ...kategoriTersedia].map((cat) => (
+            <button
+              key={cat || "all"}
+              onClick={() => setActiveKategori(cat)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${cat === activeKategori ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+            >
+              {cat ? (KATEGORI_LABEL[cat] || cat) : "Semua Jenis"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {photos.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">Belum ada laporan foto dari branch ini.</p>
+        <p className="text-sm text-slate-400 italic">Belum ada laporan foto{activeKategori ? ` untuk kategori ${KATEGORI_LABEL[activeKategori] || activeKategori}` : ""} dari branch ini.</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {photos.map((r) => {
@@ -2563,12 +2598,16 @@ function timeAgoID(date) {
 
 // ---------- Mini Jadwal Tim: versi ringkas WeeklyPlanner untuk kartu Beranda ----------
 function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, onOpenActivity, onAddActivity, onGoFullSchedule }) {
+  const [branchFilter, setBranchFilter] = useState("all");
   const weekStart = new Date(weekCursor); weekStart.setHours(0, 0, 0, 0);
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
   const weekKeys = days.map((d) => dateKey(d.getFullYear(), d.getMonth(), d.getDate()));
   const today = todayKey();
   const teamMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
-  const visibleMembers = (teamMembers.length ? teamMembers : members);
+  const baseMembers = (teamMembers.length ? teamMembers : members);
+  // Filter branch supaya daftar anggota yang dirender lebih singkat dan muat tanpa scroll ke bawah.
+  const branches = Array.from(new Set(baseMembers.filter((m) => m.branch).map((m) => m.branch))).sort();
+  const visibleMembers = branchFilter === "all" ? baseMembers : baseMembers.filter((m) => m.branch === branchFilter);
   const byMemberDay = (id, key) => activities.filter((a) => a.assignedMemberId === id && a.date === key).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
   const moveWeek = (offset) => { const d = new Date(weekStart); d.setDate(d.getDate() + offset * 7); setWeekCursor(d); };
   const goToday = () => { const t = new Date(); const day = (t.getDay() + 6) % 7; t.setDate(t.getDate() - day); setWeekCursor(t); };
@@ -2584,7 +2623,13 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
             <p className="text-[10px] text-slate-400">{monthLabel}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {branches.length > 0 && (
+            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 bg-white">
+              <option value="all">Semua branch</option>
+              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          )}
           <IconBtn onClick={() => moveWeek(-1)} title="Minggu sebelumnya"><ChevronLeft size={15} /></IconBtn>
           <GhostBtn onClick={goToday}>Hari ini</GhostBtn>
           <IconBtn onClick={() => moveWeek(1)} title="Minggu berikutnya"><ChevronRight size={15} /></IconBtn>
@@ -2594,7 +2639,7 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
       <div className="overflow-x-auto">
         <div className="min-w-[820px]">
           <div className="grid grid-cols-[130px_repeat(7,minmax(96px,1fr))] border-b border-slate-100 bg-slate-50/60">
-            <div className="p-2 text-[9px] font-black uppercase tracking-wider text-slate-400">{visibleMembers.length} Anggota Tim</div>
+            <div className="p-2 text-[9px] font-black uppercase tracking-wider text-slate-400">{visibleMembers.length} Anggota Tim{branchFilter !== "all" ? ` · ${branchFilter}` : ""}</div>
             {days.map((d, i) => {
               const key = weekKeys[i]; const isToday = key === today;
               return (
