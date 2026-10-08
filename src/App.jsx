@@ -74,11 +74,24 @@ function categoryMeta(label) {
   return CATEGORY_META[label] || { color: "#64748B", bg: "#F1F5F9", icon: LayoutGrid };
 }
 
-// Hierarki Planner: RGE (eksekutor kegiatan lapangan) + Markom Bali / Markom Nusra (pemantau, yang
-// juga memasukkan tugas Req Branding ke RGE). Markom Bali menggantikan label lama REGB, Markom
-// Nusra menggantikan REGN. BSM (fungsi Danop/BBM) TIDAK dipakai di Planner ini.
-const POSISI_OPSI = ["RGE", "Markom Bali", "Markom Nusra"];
-const LEGACY_POSISI_MAP = { REGB: "Markom Bali", REGN: "Markom Nusra" };
+// Hierarki Planner (berlaku per Oktober 2026 — perubahan struktur organisasi):
+// RGE (eksekutor kegiatan lapangan & dokumentasi) sekarang ada DUA jalur pemantau di atasnya:
+//   1. GTM Region — satu peran tunggal yang membawahi SEMUA RGE di semua branch/wilayah (menggantikan
+//      2 peran lama yang terpisah per wilayah: Markom Bali & Markom Nusra / REGB & REGN).
+//   2. HOA — membawahi RGE dalam SATU branch saja (biasanya 2 RGE per branch). Menggantikan peran
+//      lama "BSM". Jadi kegiatan tiap RGE dilaporkan ke GTM Region (selalu) DAN ke HOA branch
+//      yang bersangkutan.
+// Field "Branch" di tiap anggota tetap dipakai untuk mencocokkan notifikasi WhatsApp harian (oleh
+// automation n8n di luar file ini): RGE & HOA isi nama branch yang sama (mis. "Flores Barat") supaya
+// otomatis match; GTM Region meng-cover semua branch jadi field Branch-nya boleh dikosongkan.
+// PENTING: HOA menghandel branch-nya secara utuh, TIDAK dipisah per brand (IM3/3ID) -- jadi Branch
+// cukup diisi nama wilayah saja (mis. "Flores Barat"), tanpa embel-embel brand seperti konvensi BSM
+// yang lama (dulu bisa ada 2 BSM beda brand dalam 1 branch; sekarang cukup 1 HOA untuk 2 brand sekaligus).
+const POSISI_OPSI = ["RGE", "GTM Region", "HOA"];
+const LEGACY_POSISI_MAP = {
+  REGB: "GTM Region", REGN: "GTM Region", "MARKOM BALI": "GTM Region", "MARKOM NUSRA": "GTM Region",
+  BSM: "HOA",
+};
 function normalizePosisi(raw) {
   const t = String(raw || "").trim();
   return LEGACY_POSISI_MAP[t.toUpperCase()] || t;
@@ -86,11 +99,6 @@ function normalizePosisi(raw) {
 function isPosisiAllowed(raw) {
   return POSISI_OPSI.some((p) => p.toUpperCase() === normalizePosisi(raw).toUpperCase());
 }
-// Pemetaan region ke branch di bawahnya (acuan untuk Markom Bali / Markom Nusra).
-const REGION_BRANCHES = {
-  BALI: ["Bali Barat", "Bali Timur"],
-  NUSRA: ["Lombok Barat", "Lombok Timur", "Sumbawa", "Flores Barat", "Flores Timur", "Sumba", "Timor"],
-};
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
 const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding", "Req Branding", "Event", "FWA"];
 
@@ -208,7 +216,7 @@ function statusOf(activity, now = new Date()) {
   if (diffHours <= 3) return "berjalan";
   return "menunggu_report";
 }
-// SLA "Req Branding": dari tanggal permintaan (activity.date, diisi Markom) sampai RGE upload foto
+// SLA "Req Branding": dari tanggal permintaan (activity.date, diisi GTM Region/HOA) sampai RGE upload foto
 // serah terima (photos[] -- field yang SAMA yang sudah dipakai jalur WA/dokumentasi, jadi tidak perlu
 // field/collection baru). Target SLA: 5 hari kalender.
 const REQ_BRANDING_SLA_DAYS = 5;
@@ -793,7 +801,7 @@ export default function PapanKegiatan() {
         const phone = String(norm(row, ["nomor wa", "phone", "no wa", "whatsapp"])).replace(/\D/g, "");
         if (!phone) { skipped++; continue; }
         const posisi = normalizePosisi(norm(row, ["posisi", "position"]) || "RGE");
-        if (!isPosisiAllowed(posisi)) { skipped++; continue; } // mis. BSM: tidak dibawa ke Planner
+        if (!isPosisiAllowed(posisi)) { skipped++; continue; } // posisi di luar RGE/GTM Region/HOA: tidak dibawa ke Planner
         await addMember({
           name: norm(row, ["nama", "name"]),
           phone,
@@ -802,7 +810,7 @@ export default function PapanKegiatan() {
         });
         ok++;
       }
-      notify(`Import selesai: ${ok} anggota tersimpan${skipped ? `, ${skipped} baris dilewati (nomor WA kosong / posisi bukan RGE, Markom Bali, Markom Nusra)` : ""}.`);
+      notify(`Import selesai: ${ok} anggota tersimpan${skipped ? `, ${skipped} baris dilewati (nomor WA kosong / posisi bukan RGE, GTM Region, HOA)` : ""}.`);
     } catch (err) {
       console.error("Gagal import Excel:", err);
       notify("Gagal membaca file Excel. Pastikan formatnya .xlsx dengan kolom Nama/Nomor WA/Branch/Posisi.");
@@ -1165,8 +1173,8 @@ function ResumeAnggota({ members, activities, cursor }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
   const monthActs = activities.filter((a) => a.date && a.date.startsWith(monthPrefix));
 
-  // BSM tidak ikut direkap sebagai eksekutor — resume ini hanya untuk RGE/CSE/RSE.
-  const executorMembers = members.filter((m) => String(m.posisi || "").toUpperCase() !== "BSM");
+  // GTM Region & HOA adalah pemantau (atasan), bukan eksekutor kegiatan — resume ini hanya untuk RGE.
+  const executorMembers = members.filter((m) => normalizePosisi(m.posisi || "RGE") === "RGE");
   const rows = executorMembers.map((m) => {
     const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
     return {
@@ -1581,7 +1589,7 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
 }
 
 // Thumbnail dokumentasi dengan tombol hapus + konfirmasi ringkas (dibikin selalu terlihat, bukan
-// cuma muncul saat hover, supaya enak dipakai lewat HP/tablet oleh BSM).
+// cuma muncul saat hover, supaya enak dipakai lewat HP/tablet oleh HOA/GTM Region).
 function PhotoThumb({ photo, onRemove }) {
   const [confirm, setConfirm] = useState(false);
   return (
@@ -1706,13 +1714,13 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
             <Field label="Posisi">
               <select style={inputStyle} value={posisi} onChange={(e) => setPosisi(e.target.value)}>
                 <option value="RGE">RGE (eksekutor kegiatan &amp; dokumentasi)</option>
-                <option value="Markom Bali">Markom Bali (pemantau wilayah Bali)</option>
-                <option value="Markom Nusra">Markom Nusra (pemantau wilayah Nusra)</option>
+                <option value="HOA">HOA (membawahi 1 branch, biasanya 2 RGE)</option>
+                <option value="GTM Region">GTM Region (membawahi semua RGE semua branch)</option>
               </select>
             </Field>
           </div>
           <p className="text-xs text-slate-400 -mt-1">
-            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian. Untuk CSE/RSE/BSM, isi lengkap wilayah + brand (mis. "Flores Barat IM3") — cuma cocok ke BSM brand itu saja. Untuk RGE yang merangkap 2 brand, isi nama wilayah saja (mis. "Flores Barat" tanpa brand) — otomatis cocok ke SEMUA BSM di wilayah itu (mis. BSM Flores Barat IM3 dan BSM Flores Barat 3ID sekaligus). Untuk REGB, isi Branch dengan <b>BALI</b> (mencakup branch Bali Barat &amp; Bali Timur). Untuk REGN, isi Branch dengan <b>NUSRA</b> (mencakup Lombok Barat, Lombok Timur, Sumbawa, Flores Barat, Flores Timur, Sumba, Timor).
+            Branch dipakai untuk mencocokkan notifikasi WhatsApp harian (kegiatan tiap RGE dilaporkan ke GTM Region <b>dan</b> ke HOA branch-nya). Untuk RGE &amp; HOA, isi nama branch yang sama persis (mis. "Flores Barat") supaya otomatis match satu sama lain. Untuk GTM Region, Branch boleh dikosongkan — perannya mencakup semua branch sekaligus.
           </p>
           <PrimaryBtn
             disabled={!name.trim() || !phone.trim()}
@@ -1928,9 +1936,9 @@ function SummaryCharts({ activities, members, cursor, onOpenActivity }) {
   });
   const typeData = Object.values(byType);
 
-  // BSM adalah pemberi perintah/manager, bukan eksekutor kegiatan — jadi tidak ikut dihitung di
-  // grafik keaktifan maupun notice "belum ada kegiatan" di bawahnya. Yang muncul hanya RGE/CSE/RSE.
-  const executorMembers = members.filter((m) => String(m.posisi || "").toUpperCase() !== "BSM");
+  // GTM Region & HOA adalah pemberi perintah/pemantau, bukan eksekutor kegiatan — jadi tidak ikut
+  // dihitung di grafik keaktifan maupun notice "belum ada kegiatan" di bawahnya. Yang muncul hanya RGE.
+  const executorMembers = members.filter((m) => normalizePosisi(m.posisi || "RGE") === "RGE");
   const byMember = executorMembers.map((m) => {
     const mine = monthActs.filter((a) => a.assignedMemberId === m.id);
     return {
@@ -2378,7 +2386,7 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget, activities = 
 
   const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
 
-  // Item KPI ke-6: "Req Branding" -- permintaan cetak dari Markom sampai RGE serah-terima ke
+  // Item KPI ke-6: "Req Branding" -- permintaan cetak dari GTM Region/HOA sampai RGE serah-terima ke
   // DSE/RSE/Depo (dibuktikan foto). SLA 5 hari, dihitung dari activity.date s/d timestamp foto
   // terakhir (lihat reqBrandingSLA). Di-scope ke bulan yang sedang dilihat, sama seperti sisa
   // halaman ini, berdasarkan tanggal permintaannya.
@@ -2530,7 +2538,7 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget, activities = 
           <div className="flex items-center gap-2"><Package size={16} className="text-amber-600" /><h3 className="font-bold text-slate-900">Req Branding — SLA Serah Terima</h3></div>
           {reqBrandingLate > 0 && <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-full">{reqBrandingLate} terlambat</span>}
         </div>
-        <p className="text-[11px] text-slate-400 mb-3">Permintaan branding dari Markom Bali/Nusra ke RGE bulan ini. Target SLA {REQ_BRANDING_SLA_DAYS} hari sejak tanggal permintaan sampai foto serah terima ke DSE/RSE/Depo di-upload.</p>
+        <p className="text-[11px] text-slate-400 mb-3">Permintaan branding dari GTM Region/HOA ke RGE bulan ini. Target SLA {REQ_BRANDING_SLA_DAYS} hari sejak tanggal permintaan sampai foto serah terima ke DSE/RSE/Depo di-upload.</p>
         {reqBrandingRows.length === 0 ? (
           <p className="text-sm text-slate-400 italic">Belum ada permintaan Req Branding bulan ini.</p>
         ) : (
@@ -2798,7 +2806,7 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
           <div className="absolute right-16 -bottom-20 w-52 h-52 rounded-full bg-fuchsia-400/10" />
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(to top, rgba(15,23,42,0.9), transparent 55%)" }} />
           <div className="relative">
-            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">{greetingNow()}, Markom BN 👋</h2>
+            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">{greetingNow()}, GTM Region 👋</h2>
             <p className="text-indigo-100 text-xs sm:text-sm mt-1 max-w-md">Berikut adalah ringkasan aktivitas dan pencapaian tim hari ini.</p>
           </div>
         </section>
