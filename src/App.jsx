@@ -99,6 +99,60 @@ function normalizePosisi(raw) {
 function isPosisiAllowed(raw) {
   return POSISI_OPSI.some((p) => p.toUpperCase() === normalizePosisi(raw).toUpperCase());
 }
+
+// ---------- Urutan branch (dipakai untuk mengurutkan RGE di Jadwal Tim & Anggota Tim) ----------
+const BRANCH_ORDER = ["bali barat", "bali timur", "lombok barat", "lombok timur", "sumbawa", "flores barat", "flores timur", "sumba", "timor utara", "timor selatan"];
+function branchRank(b) {
+  const t = String(b || "").trim().toLowerCase();
+  if (!t) return 999;
+  const exact = BRANCH_ORDER.indexOf(t);
+  if (exact >= 0) return exact;
+  if (t === "timor") return BRANCH_ORDER.indexOf("timor utara"); // nama lama tanpa arah
+  let best = -1;
+  BRANCH_ORDER.forEach((o, i) => { if (t.startsWith(o + " ") && (best < 0 || o.length > BRANCH_ORDER[best].length)) best = i; });
+  return best >= 0 ? best : 999; // branch di luar daftar ditaruh paling bawah
+}
+// Urut: sesuai BRANCH_ORDER, lalu nama (A-Z) di dalam branch yang sama.
+function sortMembersByBranch(list) {
+  return [...list].sort((a, b) =>
+    branchRank(a.branch) - branchRank(b.branch) ||
+    String(a.branch || "").localeCompare(String(b.branch || "")) ||
+    String(a.name || "").localeCompare(String(b.name || "")));
+}
+function sortBranches(list) {
+  return [...list].sort((a, b) => branchRank(a) - branchRank(b) || String(a).localeCompare(String(b)));
+}
+
+// ---------- Deteksi member dobel (berdasarkan nomor WA) ----------
+// Kunci nomor dinormalkan supaya "0812...", "812...", "+62 812..." dianggap nomor yang sama.
+function phoneKey(p) {
+  let d = String(p || "").replace(/\D/g, "");
+  if (d.startsWith("0")) d = "62" + d.slice(1);
+  else if (d.startsWith("8")) d = "62" + d;
+  return d;
+}
+// Mengembalikan [{ key, keeper, dups }]. Data yang dipertahankan (keeper) = yang paling banyak dipakai
+// kegiatan (supaya tidak ada kegiatan yang kehilangan PIC); kalau seri, utamakan doc id yang sama
+// dengan nomornya (format hasil sync n8n) dan berawalan 62.
+function findDuplicateMemberGroups(members, activities) {
+  const groups = {};
+  for (const m of members) {
+    const key = phoneKey(m.phone);
+    if (!key) continue;
+    (groups[key] = groups[key] || []).push(m);
+  }
+  return Object.entries(groups)
+    .filter(([, list]) => list.length > 1)
+    .map(([key, list]) => {
+      const score = (m) =>
+        activities.filter((a) => a.assignedMemberId === m.id).length * 1000 +
+        (m.id === String(m.phone || "").replace(/\D/g, "") ? 10 : 0) +
+        (String(m.id).startsWith("62") ? 5 : 0) +
+        (isPosisiAllowed(m.posisi || "RGE") ? 1 : 0);
+      const sorted = [...list].sort((a, b) => score(b) - score(a));
+      return { key, keeper: sorted[0], dups: sorted.slice(1) };
+    });
+}
 const HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
 const JENIS_KEGIATAN_OPSI = ["DTU", "Attack Desa", "Attack School", "Branding", "Req Branding", "Event", "FWA"];
 
@@ -776,6 +830,39 @@ export default function PapanKegiatan() {
     try { await deleteDoc(doc(db, "members", id)); }
     catch (e) { console.error(e); notify("Gagal menghapus anggota."); }
   }
+  // Hapus member dobel (nomor WA sama). Sebelum dihapus, semua kegiatan & target KPI yang menunjuk ke
+  // data dobel dipindahkan ke data yang dipertahankan, jadi tidak ada kegiatan yang kehilangan PIC.
+  async function mergeDuplicateMembers(groups) {
+    let removed = 0;
+    try {
+      for (const { keeper, dups } of groups) {
+        for (const dup of dups) {
+          for (const a of activities.filter((x) => x.assignedMemberId === dup.id)) {
+            await updateDoc(doc(db, "activities", a.id), { assignedMemberId: keeper.id });
+          }
+          for (const t of kpiTargets.filter((x) => x.memberId === dup.id)) {
+            const newId = `${keeper.id}_${t.monthKey}`;
+            if (!kpiTargets.some((x) => x.id === newId)) {
+              const { id: _oldId, ...rest } = t;
+              await setDoc(doc(db, "kpiTargets", newId), { ...rest, memberId: keeper.id });
+            }
+            await deleteDoc(doc(db, "kpiTargets", t.id));
+          }
+          // Lengkapi data keeper yang kosong dari data dobel (mis. branch/posisi), baru hapus dobelnya.
+          const fill = {};
+          if (!keeper.branch && dup.branch) fill.branch = dup.branch;
+          if (!keeper.name && dup.name) fill.name = dup.name;
+          if (Object.keys(fill).length) await updateDoc(doc(db, "members", keeper.id), fill);
+          await deleteDoc(doc(db, "members", dup.id));
+          removed++;
+        }
+      }
+      notify(`${removed} data anggota dobel dihapus.`);
+    } catch (e) {
+      console.error(e);
+      notify(`Berhenti di tengah jalan (${removed} terhapus). Coba lagi, proses ini aman diulang.`);
+    }
+  }
   // Import Excel (Quick Action di sidebar): upload file .xlsx berisi kolom Nama / Nomor WA / Branch /
   // Posisi -- kolom yang SAMA seperti sheet MEMBER yang dibaca n8n (lihat node "Siapkan Data Member
   // utk Firestore"). docId dibuat dari nomor WA supaya konsisten dengan sync otomatis dari n8n
@@ -1050,7 +1137,7 @@ export default function PapanKegiatan() {
       )}
 
       {showMembers && (
-        <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} onEdit={updateMember} />
+        <MembersModal members={members} onClose={() => setShowMembers(false)} onAdd={addMember} onRemove={removeMember} onEdit={updateMember} duplicateGroups={findDuplicateMemberGroups(members, activities)} onMergeDuplicates={mergeDuplicateMembers} />
       )}
 
       {showSim && (
@@ -1098,10 +1185,10 @@ function WeeklyPlanner({ activities, members, rgeReports, weekCursor, setWeekCur
   const weekStart = new Date(weekCursor); weekStart.setHours(0,0,0,0);
   const days = Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);return d;});
   const weekKeys=days.map(d=>dateKey(d.getFullYear(),d.getMonth(),d.getDate())); const today=todayKey();
-  const teamMembers=members.filter(m=>(m.posisi||"RGE")==="RGE"); const baseMembers=teamMembers.length?teamMembers:members;
+  const teamMembers=members.filter(m=>(m.posisi||"RGE")==="RGE"); const baseMembers=sortMembersByBranch(teamMembers.length?teamMembers:members);
   // Filter branch mengurangi JUMLAH BARIS anggota yang dirender (bukan cuma kegiatan di dalam sel),
   // supaya tabel bisa muat tanpa perlu scroll ke bawah kalau tim-nya besar.
-  const branches=Array.from(new Set(baseMembers.filter(m=>m.branch).map(m=>m.branch))).sort();
+  const branches=sortBranches(Array.from(new Set(baseMembers.filter(m=>m.branch).map(m=>m.branch))));
   const visibleMembers=branchFilter==="all"?baseMembers:baseMembers.filter(m=>m.branch===branchFilter);
   const memberMap=Object.fromEntries(members.map(m=>[m.id,m]));
   const filtered=activities.filter(a=>{const mem=memberMap[a.assignedMemberId];if(!weekKeys.includes(a.date))return false;if(memberFilter!=="all"&&a.assignedMemberId!==memberFilter)return false;const st=statusOf(a);if(statusFilter!=="all"&&st!==statusFilter)return false;if(typeFilter!=="all"&&normalizeJenisKegiatan(a.jenisKegiatan)!==typeFilter)return false;if(query.trim()){const hay=`${a.title||""} ${a.location||""} ${mem?.name||""} ${mem?.branch||""}`.toLowerCase();if(!hay.includes(query.trim().toLowerCase()))return false;}return true;});
@@ -1688,7 +1775,7 @@ function MemberRow({ member, onRemove, onEdit }) {
   );
 }
 
-function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
+function MembersModal({ members, onClose, onAdd, onRemove, onEdit, duplicateGroups = [], onMergeDuplicates }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [branch, setBranch] = useState("");
@@ -1697,6 +1784,24 @@ function MembersModal({ members, onClose, onAdd, onRemove, onEdit }) {
     <Modal onClose={onClose} width={460}>
       <ModalHeader title="Sheet Anggota Tim" onClose={onClose} icon={<Users size={18} />} />
       <div className="p-5 flex flex-col gap-4">
+        {duplicateGroups.length > 0 && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 flex flex-col gap-2">
+            <div className="text-sm font-bold text-amber-800">
+              {duplicateGroups.length} nomor WA terdeteksi dobel ({duplicateGroups.reduce((n, g) => n + g.dups.length, 0)} data kelebihan)
+            </div>
+            <div className="flex flex-col gap-1 overflow-y-auto" style={{ maxHeight: 120 }}>
+              {duplicateGroups.map((g) => (
+                <div key={g.key} className="text-xs text-amber-900">
+                  <b>{g.keeper.phone}</b> — dipertahankan: {g.keeper.name || "-"} ({g.keeper.posisi || "RGE"}); dihapus: {g.dups.map((d) => `${d.name || "-"} (${d.phone})`).join(", ")}
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-amber-700">Kegiatan & target KPI milik data dobel otomatis dipindah ke data yang dipertahankan. Pastikan baris dobel di Sheet MEMBER juga dihapus, kalau tidak bisa muncul lagi saat sinkron.</p>
+            <PrimaryBtn onClick={() => { if (window.confirm("Hapus data anggota dobel ini? Kegiatan akan dipindah ke data yang dipertahankan.")) onMergeDuplicates?.(duplicateGroups); }}>
+              <Trash2 size={15} />Hapus Duplikat
+            </PrimaryBtn>
+          </div>
+        )}
         <div className="flex flex-col gap-2 overflow-y-auto" style={{ maxHeight: 320 }}>
           {members.map((m) => <MemberRow key={m.id} member={m} onRemove={onRemove} onEdit={onEdit} />)}
           {members.length === 0 && <p className="text-sm text-slate-400">Belum ada anggota.</p>}
@@ -2146,7 +2251,7 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branch, setBranch] = useState(null); // null = semua branch
   const [jenis, setJenis] = useState(null); // null = semua jenis kegiatan
-  const branches = Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))).sort();
+  const branches = sortBranches(Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))));
   const prevMonth = () => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }));
   const nextMonth = () => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }));
   return (
@@ -2195,9 +2300,9 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
 function GaleriPerBranch({ members, rgeReports }) {
   // Branch diambil dinamis dari data anggota RGE yang ada, bukan di-hardcode -- otomatis
   // menyesuaikan berapa pun jumlah branch yang sebenarnya ada di sheet Member.
-  const branches = Array.from(
+  const branches = sortBranches(Array.from(
     new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))
-  ).sort();
+  ));
   const [activeBranch, setActiveBranch] = useState(null);
   const [activeKategori, setActiveKategori] = useState(null); // null = semua jenis kegiatan
   const effectiveBranch = activeBranch && branches.includes(activeBranch) ? activeBranch : branches[0];
@@ -2384,7 +2489,7 @@ function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget, activities = 
   const [editMember, setEditMember] = useState(null);
   const monthKey = monthKeyOf(cursor);
 
-  const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  const rgeMembers = sortMembersByBranch(members.filter((m) => (m.posisi || "RGE") === "RGE"));
 
   // Item KPI ke-6: "Req Branding" -- permintaan cetak dari GTM Region/HOA sampai RGE serah-terima ke
   // DSE/RSE/Depo (dibuktikan foto). SLA 5 hari, dihitung dari activity.date s/d timestamp foto
@@ -2612,9 +2717,9 @@ function WeeklyScheduleMini({ activities, members, weekCursor, setWeekCursor, on
   const weekKeys = days.map((d) => dateKey(d.getFullYear(), d.getMonth(), d.getDate()));
   const today = todayKey();
   const teamMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
-  const baseMembers = (teamMembers.length ? teamMembers : members);
+  const baseMembers = sortMembersByBranch(teamMembers.length ? teamMembers : members);
   // Filter branch supaya daftar anggota yang dirender lebih singkat dan muat tanpa scroll ke bawah.
-  const branches = Array.from(new Set(baseMembers.filter((m) => m.branch).map((m) => m.branch))).sort();
+  const branches = sortBranches(Array.from(new Set(baseMembers.filter((m) => m.branch).map((m) => m.branch))));
   const visibleMembers = branchFilter === "all" ? baseMembers : baseMembers.filter((m) => m.branch === branchFilter);
   const byMemberDay = (id, key) => activities.filter((a) => a.assignedMemberId === id && a.date === key).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
   const moveWeek = (offset) => { const d = new Date(weekStart); d.setDate(d.getDate() + offset * 7); setWeekCursor(d); };
@@ -2934,7 +3039,7 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
 // ---------- Team Overview: ringkasan per anggota RGE hari ini + overdue keseluruhan. ----------
 function TeamOverview({ activities, members }) {
   const today = todayKey();
-  const rgeMembers = members.filter((m) => (m.posisi || "RGE") === "RGE");
+  const rgeMembers = sortMembersByBranch(members.filter((m) => (m.posisi || "RGE") === "RGE"));
   const rows = rgeMembers.map((m) => {
     const todays = activities.filter((a) => a.assignedMemberId === m.id && a.date === today).map((a) => ({ ...a, _status: statusOf(a) }));
     const completed = todays.filter((a) => a._status === "selesai").length;
