@@ -2149,9 +2149,46 @@ function SummaryCharts({ activities, members, cursor, onOpenActivity }) {
 }
 
 // ---------- Galeri Dokumentasi: post-it wall of photos from WA & web uploads ----------
-function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, jenisFilter = null }) {
+// Link Google Drive hasil upload n8n (webViewLink) bukan file gambar langsung, jadi tidak bisa dipakai
+// di <img>. Diubah ke URL thumbnail Drive; link non-Drive dibiarkan apa adanya. Agar gambar tampil,
+// folder tujuan upload di GDrive harus bisa dilihat ("Anyone with the link" / Siapa saja dengan link).
+function driveImageUrl(url, size = 800) {
+  const u = String(url || "");
+  const m = u.match(/drive\.google\.com\/file\/d\/([^/?#]+)/) || u.match(/drive\.google\.com\/(?:open|uc)\?[^#]*\bid=([^&#]+)/);
+  return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w${size}` : u;
+}
+// Kategori laporan WA -> jenis kegiatan di planner (Nota bukan kegiatan, jadi tidak masuk galeri kegiatan).
+const KATEGORI_KE_JENIS = { posm: "Branding", event: "Event", dtu: "DTU", desa: "Attack Desa", school: "Attack School", fwa: "FWA" };
+
+function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, jenisFilter = null, rgeReports = [] }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
   const photos = [];
+  // Foto dari laporan WA (grup RGE): digabung ke galeri ini supaya laporan via web & via WhatsApp
+  // tampil bersama. Laporan yang sudah terhubung ke jadwal (ActivityId) memakai tanggal/jenis jadwalnya;
+  // yang belum terhubung memakai tanggal kirim & kategori laporan.
+  rgeReports.forEach((r) => {
+    const url = r.FotoURL || r.fotoUrl;
+    const cat = String(r.Kategori || r.category || "").toLowerCase();
+    if (!url || !KATEGORI_KE_JENIS[cat]) return;
+    const act = activities.find((a) => a.id === (r.ActivityId || r.activityId));
+    const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
+    const tsDate = ts && !isNaN(new Date(ts)) ? (() => { const x = new Date(ts); return dateKey(x.getFullYear(), x.getMonth(), x.getDate()); })() : "";
+    const date = act?.date || tsDate;
+    if (!date || !date.startsWith(monthPrefix)) return;
+    const senderKey = phoneKey(r.Sender || r.sender || r.phone);
+    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || members.find((m) => phoneKey(m.phone || m.id) === senderKey);
+    const branch = mem?.branch || r.Branch || r.branch;
+    const jenis = act ? normalizeJenisKegiatan(act.jenisKegiatan) : KATEGORI_KE_JENIS[cat];
+    if (branchFilter && branch !== branchFilter) return;
+    if (jenisFilter && jenis !== jenisFilter) return;
+    const detail = r.NamaEvent || r.namaEvent || r.NamaLokasi || r.namaLokasi || r.NamaDesa || r.namaDesa || r.NamaSekolah || r.namaSekolah || "";
+    photos.push({
+      id: `wa-${r.id || r.MessageId}`, dataUrl: driveImageUrl(url), rawUrl: url, source: "wa",
+      activityId: act?.id || null, activityTitle: act?.title || `${jenis}${detail ? " " + detail : ""}`,
+      assignedMemberId: mem?.id, uploadedBy: r.NamaRGE || r.Sender, uploadedAt: ts, jenisKegiatan: jenis,
+      hasil: { spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0 },
+    });
+  });
   activities.forEach((a) => {
     if (!a.date || !a.date.startsWith(monthPrefix)) return;
     if (branchFilter && members.find((m) => m.id === a.assignedMemberId)?.branch !== branchFilter) return;
@@ -2181,7 +2218,7 @@ function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, 
             return (
               <div
                 key={ph.id}
-                onClick={() => onOpen(ph.activityId)}
+                onClick={() => (ph.activityId ? onOpen(ph.activityId) : window.open(ph.rawUrl || ph.dataUrl, "_blank"))}
                 className="bg-white p-2 pb-3 cursor-pointer transition-transform hover:scale-105 hover:z-10 relative"
                 style={{ transform: `rotate(${rotate}deg)`, boxShadow: "0 3px 8px rgba(0,0,0,0.18)" }}
               >
@@ -2190,6 +2227,7 @@ function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, 
                   style={{ background: "#FDE68A", transform: "rotate(-3deg)" }}
                 />
                 <img src={ph.dataUrl} alt={ph.activityTitle} className="w-full h-28 object-cover" />
+                {ph.source === "wa" && <span className="absolute top-3 right-3 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow">WA</span>}
                 <div className="mt-2 text-center px-0.5">
                   <div className="text-[11px] font-semibold text-slate-800 truncate">{ph.activityTitle}</div>
                   <div className="text-[10px] text-slate-400 truncate">{mem ? `${mem.posisi} ${mem.name}` : ph.uploadedBy}</div>
@@ -2288,7 +2326,7 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
               <button key={j || "all"} onClick={() => setJenis(j)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${j === jenis ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{j || "Semua Jenis"}</button>
             ))}
           </div>
-          <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={onOpenActivity} branchFilter={branch} jenisFilter={jenis} />
+          <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={onOpenActivity} branchFilter={branch} jenisFilter={jenis} rgeReports={rgeReports} />
         </div>
       ) : (
         <GaleriPerBranch members={members} rgeReports={rgeReports} />
@@ -2372,7 +2410,7 @@ function GaleriPerBranch({ members, rgeReports }) {
                 className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-300 hover:shadow-sm transition block cursor-pointer"
               >
                 <div className="aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
-                  <img src={r.FotoURL || r.fotoUrl} alt={cat} className="w-full h-full object-cover" />
+                  <img src={driveImageUrl(r.FotoURL || r.fotoUrl)} alt={cat} className="w-full h-full object-cover" />
                 </div>
                 <div className="p-2.5">
                   <div className="flex items-center justify-between gap-1 mb-1">
