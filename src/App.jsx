@@ -2338,24 +2338,46 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
 function GaleriPerBranch({ members, rgeReports }) {
   // Branch diambil dinamis dari data anggota RGE yang ada, bukan di-hardcode -- otomatis
   // menyesuaikan berapa pun jumlah branch yang sebenarnya ada di sheet Member.
-  const branches = sortBranches(Array.from(
+  const memberBranches = Array.from(
     new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))
-  ));
-  const [activeBranch, setActiveBranch] = useState(null);
+  );
+  const NO_BRANCH = "__none"; // laporan yang branch-nya kosong / tidak bisa dikenali
+  // Branch tiap laporan: pakai kolom Branch laporan; kalau kosong / "TIDAK TERDAFTAR", cari lewat nomor
+  // pengirim di data anggota. Pencocokan tidak peka huruf besar-kecil dan toleran akhiran
+  // (mis. "Flores Barat IM3" tetap masuk "Flores Barat").
+  const resolveBranch = (r) => {
+    let b = String(r.Branch || r.branch || "").trim();
+    if (!b || b.toUpperCase() === "TIDAK TERDAFTAR") {
+      const mem = members.find((x) => phoneKey(x.phone || x.id) === phoneKey(r.Sender || r.sender || r.phone));
+      b = String(mem?.branch || "").trim();
+    }
+    if (!b) return NO_BRANCH;
+    const low = b.toLowerCase();
+    return memberBranches.find((x) => x.toLowerCase() === low)
+      || memberBranches.find((x) => low.startsWith(x.toLowerCase() + " "))
+      || b;
+  };
+  const allPhotoReports = rgeReports
+    .filter((r) => r.FotoURL || r.fotoUrl)
+    .map((r) => ({ r, b: resolveBranch(r) }));
+  const branches = sortBranches(Array.from(new Set([...memberBranches, ...allPhotoReports.map((x) => x.b).filter((b) => b !== NO_BRANCH)])));
+  const countOf = (b) => allPhotoReports.filter((x) => x.b === b).length;
+  const hasNoBranch = allPhotoReports.some((x) => x.b === NO_BRANCH);
+  const [activeBranch, setActiveBranch] = useState(null); // null = Semua Branch
   const [activeKategori, setActiveKategori] = useState(null); // null = semua jenis kegiatan
-  const effectiveBranch = activeBranch && branches.includes(activeBranch) ? activeBranch : branches[0];
+  const effectiveBranch = activeBranch === NO_BRANCH || branches.includes(activeBranch) ? activeBranch : null;
 
-  const photosBranch = rgeReports
-    .filter((r) => r.Branch === effectiveBranch || r.branch === effectiveBranch)
-    .filter((r) => r.FotoURL || r.fotoUrl);
+  const photosBranch = allPhotoReports
+    .filter((x) => effectiveBranch === null || x.b === effectiveBranch)
+    .map((x) => x.r);
   // Daftar kategori filter diambil dari kategori yang benar-benar ada di branch ini, jadi tidak ada
   // tombol filter untuk kategori yang kosong/tidak relevan.
   const kategoriTersedia = Array.from(new Set(photosBranch.map((r) => r.Kategori || r.category).filter(Boolean)));
   const photos = (activeKategori ? photosBranch.filter((r) => (r.Kategori || r.category) === activeKategori) : photosBranch)
     .sort((a, b) => String(b.Timestamp || b.receivedAt || "").localeCompare(String(a.Timestamp || a.receivedAt || "")));
 
-  if (branches.length === 0) {
-    return <p className="text-sm text-slate-400 italic">Belum ada data branch. Isi field "Branch" di Sheet Anggota terlebih dulu.</p>;
+  if (branches.length === 0 && allPhotoReports.length === 0) {
+    return <p className="text-sm text-slate-400 italic">Belum ada laporan foto dan belum ada data branch. Isi field "Branch" di Sheet Anggota terlebih dulu.</p>;
   }
 
   return (
@@ -2365,15 +2387,18 @@ function GaleriPerBranch({ members, rgeReports }) {
         <h3 className="font-bold text-base text-slate-900">Galeri Laporan per Branch</h3>
       </div>
       <div className="flex flex-wrap gap-1.5 mb-3">
-        {branches.map((b) => (
-          <button
-            key={b}
-            onClick={() => { setActiveBranch(b); setActiveKategori(null); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${b === effectiveBranch ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
-          >
-            {b}
-          </button>
-        ))}
+        {[null, ...branches, ...(hasNoBranch ? [NO_BRANCH] : [])].map((b) => {
+          const n = b === null ? allPhotoReports.length : countOf(b);
+          return (
+            <button
+              key={b || "all"}
+              onClick={() => { setActiveBranch(b); setActiveKategori(null); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${b === effectiveBranch ? "bg-indigo-600 border-indigo-600 text-white" : n === 0 ? "bg-white border-slate-200 text-slate-400 hover:bg-slate-50" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+            >
+              {b === null ? "Semua Branch" : b === NO_BRANCH ? "Tanpa Branch" : b} <span className="opacity-70">({n})</span>
+            </button>
+          );
+        })}
       </div>
       {kategoriTersedia.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-4 pt-3 border-t border-slate-100">
@@ -2391,7 +2416,7 @@ function GaleriPerBranch({ members, rgeReports }) {
       )}
 
       {photos.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">Belum ada laporan foto{activeKategori ? ` untuk kategori ${KATEGORI_LABEL[activeKategori] || activeKategori}` : ""} dari branch ini.</p>
+        <p className="text-sm text-slate-400 italic">Belum ada laporan foto{activeKategori ? ` untuk kategori ${KATEGORI_LABEL[activeKategori] || activeKategori}` : ""}{effectiveBranch ? " dari branch ini" : ""}.{allPhotoReports.length === 0 ? (rgeReports.length > 0 ? ` Terbaca ${rgeReports.length} laporan dari WA, tetapi tidak ada yang punya link foto (kolom FotoURL kosong) -- cek node upload ke Google Drive di n8n.` : " Belum ada satu pun laporan WA tersimpan di database (koleksi rgeReports kosong) -- cek apakah caption laporan diawali kata kunci (dtu/event/desa/school/fwa/posm/nota) dan workflow n8n berjalan.") : ""}</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {photos.map((r) => {
