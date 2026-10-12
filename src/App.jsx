@@ -2269,7 +2269,9 @@ function ringkasanLaporan(r) {
     let items = {};
     try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || r.posmItems || {}); }
     catch { items = {}; }
-    return Object.entries(items).map(([k, v]) => `${k} ${v}pcs`).join(", ");
+    const lokasiPosm = r.namaLokasi || r.NamaLokasi || "";
+    const itemsText = Object.entries(items).map(([k, v]) => `${k} ${v}pcs`).join(", ");
+    return [lokasiPosm, itemsText].filter(Boolean).join(" · ");
   }
   const spIM3 = r.SP_IM3 ?? r.spIM3;
   const sp3ID = r.SP_3ID ?? r.sp3ID;
