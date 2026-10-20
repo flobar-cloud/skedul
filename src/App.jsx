@@ -2161,43 +2161,9 @@ function driveImageUrl(url, size = 800) {
 const KATEGORI_KE_JENIS = { posm: "Branding", event: "Event", dtu: "DTU", desa: "Attack Desa", school: "Attack School", fwa: "FWA" };
 
 function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, jenisFilter = null, rgeReports = [] }) {
-  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
-  const photos = [];
-  // Foto dari laporan WA (grup RGE): digabung ke galeri ini supaya laporan via web & via WhatsApp
-  // tampil bersama. Laporan yang sudah terhubung ke jadwal (ActivityId) memakai tanggal/jenis jadwalnya;
-  // yang belum terhubung memakai tanggal kirim & kategori laporan.
-  rgeReports.forEach((r) => {
-    const url = r.FotoURL || r.fotoUrl;
-    const cat = String(r.Kategori || r.category || "").toLowerCase();
-    if (!url || !KATEGORI_KE_JENIS[cat]) return;
-    const act = activities.find((a) => a.id === (r.ActivityId || r.activityId));
-    const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
-    const tsDate = ts && !isNaN(new Date(ts)) ? (() => { const x = new Date(ts); return dateKey(x.getFullYear(), x.getMonth(), x.getDate()); })() : "";
-    const date = act?.date || tsDate;
-    if (!date || !date.startsWith(monthPrefix)) return;
-    const senderKey = phoneKey(r.Sender || r.sender || r.phone);
-    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || members.find((m) => phoneKey(m.phone || m.id) === senderKey);
-    const branch = mem?.branch || r.Branch || r.branch;
-    const jenis = act ? normalizeJenisKegiatan(act.jenisKegiatan) : KATEGORI_KE_JENIS[cat];
-    if (branchFilter && branch !== branchFilter) return;
-    if (jenisFilter && jenis !== jenisFilter) return;
-    const detail = r.NamaEvent || r.namaEvent || r.NamaLokasi || r.namaLokasi || r.NamaDesa || r.namaDesa || r.NamaSekolah || r.namaSekolah || "";
-    photos.push({
-      id: `wa-${r.id || r.MessageId}`, dataUrl: driveImageUrl(url), rawUrl: url, source: "wa",
-      activityId: act?.id || null, activityTitle: act?.title || `${jenis}${detail ? " " + detail : ""}`,
-      assignedMemberId: mem?.id, uploadedBy: r.NamaRGE || r.Sender, uploadedAt: ts, jenisKegiatan: jenis,
-      hasil: { spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0 },
-    });
-  });
-  activities.forEach((a) => {
-    if (!a.date || !a.date.startsWith(monthPrefix)) return;
-    if (branchFilter && members.find((m) => m.id === a.assignedMemberId)?.branch !== branchFilter) return;
-    if (jenisFilter && normalizeJenisKegiatan(a.jenisKegiatan) !== jenisFilter) return;
-    (a.photos || []).forEach((ph) => {
-      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId, hasil: a.hasil, jenisKegiatan: normalizeJenisKegiatan(a.jenisKegiatan) });
-    });
-  });
-  photos.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
+  // Daftar foto (web + WhatsApp) dibangun oleh collectGaleriPhotos() -- fungsi yang sama dipakai export PDF,
+  // jadi isi PDF selalu persis sama dengan galeri di layar.
+  const photos = collectGaleriPhotos({ activities, members, rgeReports, cursor, branchFilter, jenisFilter });
 
   return (
     <div>
@@ -2286,6 +2252,255 @@ function ringkasanLaporan(r) {
 }
 // ---------- Laporan & Rekap: 2 tab -- Galeri Kegiatan (foto dokumentasi di activities[].photos, dari WA
 // atau upload web) dan Laporan WA per Branch (rgeReports). Galeri Kegiatan bisa difilter per branch. ----------
+// ---------- Rekap bulanan per RGE: Export Excel + Galeri PDF ----------
+// Satu "laporan" (entry) = satu kegiatan yang sudah ada buktinya (selesai / ada hasil / ada foto / ada
+// laporan WA yang terhubung), ATAU satu laporan WA yang belum terhubung ke jadwal. Laporan WA yang
+// terhubung ke jadwal tidak dihitung dua kali: angka SP dipakai dari hasil kegiatan (kalau ada),
+// kalau tidak ada baru dijumlahkan dari laporan WA-nya.
+const HASIL_FIELDS = [
+  ["spIM3", "SP IM3"], ["sp3ID", "SP 3ID"], ["hifi", "Hifi/FWA"], ["poster", "Poster"],
+  ["shopblind", "Shopblind"], ["vinil", "Vinil"], ["spanduk", "Spanduk"], ["rontek", "Rontek"],
+];
+const emptyHasil = () => ({ spIM3: 0, sp3ID: 0, hifi: 0, poster: 0, shopblind: 0, vinil: 0, spanduk: 0, rontek: 0 });
+function addHasil(target, src) {
+  HASIL_FIELDS.forEach(([k]) => { target[k] += Number(src?.[k]) || 0; });
+  return target;
+}
+function hasilFromReport(r) {
+  let items = r.PosmItems ?? r.posmItems ?? {};
+  if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
+  const g = (k) => Number(items?.[k]) || 0;
+  return {
+    spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0,
+    hifi: Number(r.FWA ?? r.fwa) || 0, poster: g("poster"), shopblind: g("shopblind"), vinil: 0,
+    spanduk: g("spanduk"), rontek: g("rontek") + g("rountag") + g("roundtag"),
+  };
+}
+function reportDateLocal(r) {
+  const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
+  if (!ts || isNaN(new Date(ts))) return "";
+  const x = new Date(ts);
+  return dateKey(x.getFullYear(), x.getMonth(), x.getDate());
+}
+function reportDetailText(r) {
+  return r.NamaEvent || r.namaEvent || r.NamaLokasi || r.namaLokasi || r.NamaDesa || r.namaDesa || r.NamaSekolah || r.namaSekolah || "";
+}
+
+// Daftar foto galeri (dipakai tampilan web DAN PDF supaya isinya selalu sama).
+function collectGaleriPhotos({ activities, members, rgeReports = [], cursor, branchFilter = null, jenisFilter = null }) {
+  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
+  const photos = [];
+  rgeReports.forEach((r) => {
+    const url = r.FotoURL || r.fotoUrl;
+    const cat = String(r.Kategori || r.category || "").toLowerCase();
+    if (!url || !KATEGORI_KE_JENIS[cat]) return;
+    const act = activities.find((a) => a.id === (r.ActivityId || r.activityId));
+    const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
+    const date = act?.date || reportDateLocal(r);
+    if (!date || !date.startsWith(monthPrefix)) return;
+    const senderKey = phoneKey(r.Sender || r.sender || r.phone);
+    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || members.find((m) => phoneKey(m.phone || m.id) === senderKey);
+    const branch = mem?.branch || r.Branch || r.branch;
+    const jenis = act ? normalizeJenisKegiatan(act.jenisKegiatan) : KATEGORI_KE_JENIS[cat];
+    if (branchFilter && branch !== branchFilter) return;
+    if (jenisFilter && jenis !== jenisFilter) return;
+    const detail = reportDetailText(r);
+    photos.push({
+      id: `wa-${r.id || r.MessageId}`, dataUrl: driveImageUrl(url), rawUrl: url, source: "wa",
+      activityId: act?.id || null, activityTitle: act?.title || `${jenis}${detail ? " " + detail : ""}`,
+      assignedMemberId: mem?.id, uploadedBy: r.NamaRGE || r.Sender, uploadedAt: ts, jenisKegiatan: jenis,
+      hasil: { spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0 },
+    });
+  });
+  activities.forEach((a) => {
+    if (!a.date || !a.date.startsWith(monthPrefix)) return;
+    if (branchFilter && members.find((m) => m.id === a.assignedMemberId)?.branch !== branchFilter) return;
+    if (jenisFilter && normalizeJenisKegiatan(a.jenisKegiatan) !== jenisFilter) return;
+    (a.photos || []).forEach((ph) => {
+      photos.push({ ...ph, activityId: a.id, activityTitle: a.title, assignedMemberId: a.assignedMemberId, hasil: a.hasil, jenisKegiatan: normalizeJenisKegiatan(a.jenisKegiatan) });
+    });
+  });
+  photos.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""));
+  return photos;
+}
+
+// Kumpulkan semua laporan bulan terpilih + rekap per RGE.
+function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branchFilter = null }) {
+  const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
+  const actById = new Map(activities.map((a) => [a.id, a]));
+  const linked = {};
+  const standalone = [];
+  rgeReports.forEach((r) => {
+    if (!KATEGORI_KE_JENIS[String(r.Kategori || r.category || "").toLowerCase()]) return; // Nota bukan kegiatan
+    const aid = r.ActivityId || r.activityId;
+    const act = aid ? actById.get(aid) : null;
+    if (act) (linked[act.id] = linked[act.id] || []).push(r);
+    else standalone.push(r);
+  });
+
+  const entries = [];
+  const jadwalByMember = {};
+  activities.forEach((a) => {
+    if (!a.date || !a.date.startsWith(monthPrefix)) return;
+    const mem = members.find((m) => m.id === a.assignedMemberId);
+    if (branchFilter && mem?.branch !== branchFilter) return;
+    jadwalByMember[a.assignedMemberId] = (jadwalByMember[a.assignedMemberId] || 0) + 1;
+    const reports = linked[a.id] || [];
+    const hasilWeb = addHasil(emptyHasil(), a.hasil);
+    const adaHasilWeb = HASIL_FIELDS.some(([k]) => hasilWeb[k] > 0);
+    const nFotoWeb = (a.photos || []).length;
+    const bukti = a.status === "selesai" || adaHasilWeb || nFotoWeb > 0 || reports.length > 0;
+    if (!bukti) return;
+    const hasil = adaHasilWeb ? hasilWeb : reports.reduce((acc, r) => addHasil(acc, hasilFromReport(r)), emptyHasil());
+    const links = reports.map((r) => r.FotoURL || r.fotoUrl).filter(Boolean);
+    entries.push({
+      tanggal: a.date, memberId: a.assignedMemberId, rge: mem?.name || "(tanpa PIC)", branch: mem?.branch || "",
+      jenis: normalizeJenisKegiatan(a.jenisKegiatan), judul: a.title || "", hasil,
+      sumber: reports.length && nFotoWeb ? "Web + WA" : reports.length ? "WA" : "Web",
+      nFoto: nFotoWeb + links.length, links, fromJadwal: true,
+    });
+  });
+  standalone.forEach((r) => {
+    const date = reportDateLocal(r);
+    if (!date || !date.startsWith(monthPrefix)) return;
+    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender || r.phone));
+    const branch = mem?.branch || r.Branch || r.branch || "";
+    if (branchFilter && branch !== branchFilter) return;
+    const url = r.FotoURL || r.fotoUrl;
+    entries.push({
+      tanggal: date, memberId: mem?.id || null, rge: mem?.name || r.NamaRGE || r.Sender || "(tidak dikenal)", branch: branch === "TIDAK TERDAFTAR" ? "" : branch,
+      jenis: KATEGORI_KE_JENIS[String(r.Kategori || r.category || "").toLowerCase()], judul: reportDetailText(r),
+      hasil: hasilFromReport(r), sumber: "WA", nFoto: url ? 1 : 0, links: url ? [url] : [],
+    });
+  });
+  entries.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.rge.localeCompare(b.rge));
+
+  // Baris rekap: semua RGE (walau 0 laporan, supaya kelihatan siapa yang belum lapor) + pengirim tak dikenal.
+  const rgeList = sortMembersByBranch(members.filter((m) => (m.posisi || "RGE") === "RGE" && (!branchFilter || m.branch === branchFilter)));
+  const rowsMap = new Map();
+  const newRow = (key, name, branch, jadwal) => ({ key, name, branch, jadwal, terlaksana: 0, dariJadwal: 0, perJenis: {}, total: emptyHasil() });
+  rgeList.forEach((m) => rowsMap.set(m.id, newRow(m.id, m.name, m.branch || "", jadwalByMember[m.id] || 0)));
+  entries.forEach((e) => {
+    const key = e.memberId && rowsMap.has(e.memberId) ? e.memberId : `x:${e.rge}`;
+    if (!rowsMap.has(key)) rowsMap.set(key, newRow(key, e.rge, e.branch, 0));
+    const row = rowsMap.get(key);
+    row.terlaksana += 1;
+    if (e.fromJadwal) row.dariJadwal += 1; // dipakai untuk % realisasi (laporan WA tanpa jadwal tidak menaikkan persentase)
+    const pj = (row.perJenis[e.jenis] = row.perJenis[e.jenis] || { n: 0, hasil: emptyHasil() });
+    pj.n += 1; addHasil(pj.hasil, e.hasil); addHasil(row.total, e.hasil);
+  });
+  return { entries, rows: [...rowsMap.values()] };
+}
+
+function exportRekapExcel({ activities, members, rgeReports, cursor, branchFilter }) {
+  const { entries, rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
+  const monthKey = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
+  const jenisCols = JENIS_KEGIATAN_OPSI;
+
+  // Sheet 1: rekap ringkas per RGE
+  const h1 = ["Branch", "RGE", "Jadwal", "Terlaksana", "% Realisasi Jadwal", ...jenisCols, ...HASIL_FIELDS.map(([, l]) => `Total ${l}`)];
+  const body1 = rows.map((r) => [
+    r.branch, r.name, r.jadwal, r.terlaksana, r.jadwal ? Math.round((Math.min(r.dariJadwal, r.jadwal) / r.jadwal) * 100) / 100 : "",
+    ...jenisCols.map((j) => r.perJenis[j]?.n || 0), ...HASIL_FIELDS.map(([k]) => r.total[k]),
+  ]);
+  const sumCol = (i) => body1.reduce((s, row) => s + (Number(row[i]) || 0), 0);
+  const totDariJadwal = rows.reduce((n, r) => n + Math.min(r.dariJadwal, r.jadwal), 0);
+  const totalRow = ["TOTAL", "", sumCol(2), sumCol(3), sumCol(2) ? Math.round((totDariJadwal / sumCol(2)) * 100) / 100 : "", ...h1.slice(5).map((_, i) => sumCol(5 + i))];
+  const ws1 = XLSX.utils.aoa_to_sheet([h1, ...body1, totalRow]);
+  ws1["!cols"] = h1.map((h, i) => ({ wch: i === 0 ? 16 : i === 1 ? 26 : Math.max(10, h.length + 2) }));
+  ws1["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: body1.length, c: h1.length - 1 } }) };
+  for (let r = 1; r <= body1.length + 1; r++) { const c = ws1[XLSX.utils.encode_cell({ r, c: 4 })]; if (c && c.v !== "") c.z = "0%"; }
+
+  // Sheet 2: rekap per RGE x jenis kegiatan (format panjang, enak di-pivot)
+  const h2 = ["Branch", "RGE", "Jenis Kegiatan", "Jumlah", ...HASIL_FIELDS.map(([, l]) => l)];
+  const body2 = [];
+  rows.forEach((r) => jenisCols.forEach((j) => {
+    const pj = r.perJenis[j]; if (!pj) return;
+    body2.push([r.branch, r.name, j, pj.n, ...HASIL_FIELDS.map(([k]) => pj.hasil[k])]);
+  }));
+  const ws2 = XLSX.utils.aoa_to_sheet([h2, ...body2]);
+  ws2["!cols"] = h2.map((h, i) => ({ wch: i === 0 ? 16 : i === 1 ? 26 : i === 2 ? 16 : Math.max(10, h.length + 2) }));
+  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(body2.length, 1), c: h2.length - 1 } }) };
+
+  // Sheet 3: detail tiap laporan + link foto (klik untuk membuka)
+  const h3 = ["Tanggal", "Branch", "RGE", "Jenis", "Kegiatan / Lokasi", ...HASIL_FIELDS.map(([, l]) => l), "Sumber", "Jumlah Foto", "Link Foto"];
+  const body3 = entries.map((e) => [
+    e.tanggal, e.branch, e.rge, e.jenis, e.judul, ...HASIL_FIELDS.map(([k]) => e.hasil[k] || ""), e.sumber, e.nFoto,
+    e.links[0] ? { t: "s", v: e.links.length > 1 ? `Buka foto (+${e.links.length - 1})` : "Buka foto", l: { Target: e.links[0] } } : "",
+  ]);
+  const ws3 = XLSX.utils.aoa_to_sheet([h3, ...body3]);
+  ws3["!cols"] = [12, 16, 24, 16, 38, ...HASIL_FIELDS.map(() => 10), 10, 11, 16].map((w) => ({ wch: w }));
+  ws3["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(body3.length, 1), c: h3.length - 1 } }) };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, "Rekap per RGE");
+  XLSX.utils.book_append_sheet(wb, ws2, "Rekap per Jenis");
+  XLSX.utils.book_append_sheet(wb, ws3, "Detail Laporan");
+  XLSX.writeFile(wb, `Rekap-Laporan-RGE-${monthKey}${branchFilter ? "-" + branchFilter.replace(/\s+/g, "") : ""}.xlsx`);
+  return { entries: entries.length, rge: rows.length };
+}
+
+// Galeri PDF: membuka halaman cetak rapi (dikelompokkan per RGE) lalu memanggil dialog cetak browser;
+// pilih "Save as PDF / Simpan sebagai PDF". Tidak butuh library tambahan.
+function printGaleriPdf({ activities, members, rgeReports, cursor, branchFilter = null, jenisFilter = null }) {
+  const win = window.open("", "_blank");
+  if (!win) return false; // pop-up diblokir browser
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const photos = collectGaleriPhotos({ activities, members, rgeReports, cursor, branchFilter, jenisFilter });
+  const { rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
+  const periode = `${BULAN[cursor.m]} ${cursor.y}`;
+  const filterText = [branchFilter || "Semua Branch", jenisFilter || "Semua Jenis"].join(" · ");
+
+  const rowOf = (memberId, nama) => rows.find((r) => r.key === memberId) || rows.find((r) => r.name === nama);
+  const groups = [];
+  const gmap = new Map();
+  photos.forEach((ph) => {
+    const mem = members.find((m) => m.id === ph.assignedMemberId);
+    const key = mem?.id || `x:${ph.uploadedBy}`;
+    if (!gmap.has(key)) { const g = { key, mem, nama: mem?.name || ph.uploadedBy || "(tidak dikenal)", branch: mem?.branch || "", items: [] }; gmap.set(key, g); groups.push(g); }
+    gmap.get(key).items.push(ph);
+  });
+  groups.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || a.branch.localeCompare(b.branch) || a.nama.localeCompare(b.nama));
+
+  const sumLine = (row) => {
+    if (!row) return "";
+    const src = jenisFilter ? row.perJenis[jenisFilter] : null;
+    const h = src ? src.hasil : row.total;
+    const n = src ? src.n : row.terlaksana;
+    return `${n} kegiatan · SP IM3 ${h.spIM3} · SP 3ID ${h.sp3ID}`;
+  };
+  const jenisHead = JENIS_KEGIATAN_OPSI.map((j) => `<th>${esc(j)}</th>`).join("");
+  const tableRows = rows.filter((r) => r.terlaksana > 0 || r.jadwal > 0).map((r) => `<tr><td>${esc(r.branch)}</td><td class="l">${esc(r.name)}</td><td>${r.terlaksana}/${r.jadwal}</td>${JENIS_KEGIATAN_OPSI.map((j) => `<td>${r.perJenis[j]?.n || 0}</td>`).join("")}<td>${r.total.spIM3}</td><td>${r.total.sp3ID}</td></tr>`).join("");
+
+  const cards = (g) => g.items.map((ph) => {
+    const h = ph.hasil || {};
+    const sp = [h.spIM3 > 0 ? `SP IM3 ${h.spIM3}` : "", h.sp3ID > 0 ? `SP 3ID ${h.sp3ID}` : "", h.hifi > 0 ? `Hifi ${h.hifi}` : ""].filter(Boolean).join(" · ");
+    return `<div class="card"><img src="${esc(ph.dataUrl)}" referrerpolicy="no-referrer" alt=""><div class="t">${esc(ph.activityTitle)}</div><div class="s">${esc(ph.jenisKegiatan || "")}${ph.source === "wa" ? " · WA" : ""}</div>${sp ? `<div class="h">${esc(sp)}</div>` : ""}</div>`;
+  }).join("");
+
+  const body = groups.map((g) => `<section class="grp"><h2>${esc(g.nama)} <span>${esc(g.branch)}</span></h2><div class="sum">${g.items.length} foto · ${esc(sumLine(rowOf(g.mem?.id, g.nama)))}</div><div class="grid">${cards(g)}</div></section>`).join("");
+
+  win.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Galeri Laporan RGE ${esc(periode)}</title><style>
+@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:12px}
+h1{font-size:18px;margin:0}.meta{color:#64748b;font-size:11px;margin:2px 0 10px}
+table{border-collapse:collapse;width:100%;font-size:10px;margin-bottom:14px}th,td{border:1px solid #cbd5e1;padding:4px 5px;text-align:center}th{background:#e0e7ff}td.l{text-align:left}
+.grp{margin-bottom:14px}h2{font-size:13px;margin:0;padding:5px 8px;background:#eef2ff;border-left:4px solid #4f46e5;break-after:avoid}h2 span{font-weight:normal;color:#64748b;font-size:11px;margin-left:6px}
+.sum{font-size:10px;color:#475569;margin:3px 0 6px 2px;break-after:avoid}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.card{border:1px solid #e2e8f0;border-radius:4px;padding:5px;break-inside:avoid;background:#fff}.card img{width:100%;height:150px;object-fit:cover;display:block;background:#f1f5f9}
+.t{font-size:10.5px;font-weight:bold;margin-top:4px}.s{font-size:9.5px;color:#64748b}.h{font-size:9.5px;color:#047857;font-weight:bold}
+.bar{position:sticky;top:0;background:#fff;padding:6px 0 8px;margin-bottom:6px;border-bottom:1px solid #e2e8f0}.bar button{padding:7px 14px;font-weight:bold;background:#4f46e5;color:#fff;border:0;border-radius:6px;cursor:pointer}
+@media print{.bar{display:none}body{padding:0}}</style></head><body>
+<div class="bar"><button onclick="window.print()">Cetak / Simpan sebagai PDF</button> <span id="st" style="font-size:11px;color:#64748b;margin-left:8px">Memuat foto…</span></div>
+<h1>Rekap & Galeri Laporan RGE — ${esc(periode)}</h1><div class="meta">${esc(filterText)} · ${photos.length} foto · dibuat ${esc(new Date().toLocaleString("id-ID"))}</div>
+<table><thead><tr><th>Branch</th><th>RGE</th><th>Realisasi</th>${jenisHead}<th>SP IM3</th><th>SP 3ID</th></tr></thead><tbody>${tableRows || '<tr><td colspan="12">Belum ada data.</td></tr>'}</tbody></table>
+${body || '<p style="color:#64748b">Belum ada foto untuk filter ini.</p>'}
+<script>(function(){var imgs=[].slice.call(document.images),n=imgs.length,done=0,st=document.getElementById('st');function fin(){st.textContent='Siap dicetak ('+n+' foto)';}
+function tick(){done++;st.textContent='Memuat foto '+done+'/'+n+'…';if(done>=n){fin();setTimeout(function(){window.print();},300);}}
+if(!n){fin();}else{imgs.forEach(function(i){if(i.complete){tick();}else{i.onload=tick;i.onerror=tick;}});setTimeout(function(){if(done<n){fin();}},15000);}})();<\/script></body></html>`);
+  win.document.close();
+  return true;
+}
+
 function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
   const [tab, setTab] = useState("kegiatan");
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
@@ -2327,6 +2542,15 @@ function LaporanRekapPage({ activities, members, rgeReports, onOpenActivity }) {
             {[null, ...JENIS_KEGIATAN_OPSI].map((j) => (
               <button key={j || "all"} onClick={() => setJenis(j)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${j === jenis ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{j || "Semua Jenis"}</button>
             ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mr-1">Export {BULAN[cursor.m]} {cursor.y}:</span>
+            <GhostBtn onClick={() => {
+              try { const r = exportRekapExcel({ activities, members, rgeReports, cursor, branchFilter: branch }); alert(`Excel dibuat: ${r.entries} laporan dari ${r.rge} RGE.`); }
+              catch (e) { console.error(e); alert("Gagal membuat Excel."); }
+            }}><Download size={14} /> Rekap Excel (per RGE)</GhostBtn>
+            <GhostBtn onClick={() => { if (!printGaleriPdf({ activities, members, rgeReports, cursor, branchFilter: branch, jenisFilter: jenis })) alert("Pop-up diblokir browser. Izinkan pop-up untuk situs ini lalu coba lagi."); }}><Download size={14} /> Galeri PDF</GhostBtn>
+            <span className="text-[11px] text-slate-400">Mengikuti bulan, branch{jenis ? " & jenis" : ""} yang sedang dipilih.</span>
           </div>
           <GaleriFoto activities={activities} members={members} cursor={cursor} onOpen={onOpenActivity} branchFilter={branch} jenisFilter={jenis} rgeReports={rgeReports} />
         </div>
