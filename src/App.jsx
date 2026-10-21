@@ -748,7 +748,7 @@ export default function PapanKegiatan() {
   const [mainTab, setMainTab] = useState("dashboard");
   // rgeReports: ditulis oleh n8n (node "Simpan ke Firestore - rgeReports") tiap kali ada laporan
   // posm/event/dtu/desa/school/fwa/nota dari grup RGE WhatsApp. kpiTargets: target bulanan per RGE,
-  // (input target dilepas dulu dari tab Pencapaian KPI; masih dibaca oleh gauge KPI di Dashboard).
+  // diisi manual lewat form di tab "Rekap KPI".
   const [rgeReports, setRgeReports] = useState([]);
   const [kpiTargets, setKpiTargets] = useState([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -787,7 +787,7 @@ export default function PapanKegiatan() {
     );
     const unsubReports = onSnapshot(
       collection(db, "rgeReports"),
-      (snap) => setRgeReports(normalizeRgeReports(snap.docs.map((d) => ({ ...d.data(), id: d.id })))),
+      (snap) => setRgeReports(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
       (err) => console.error("Gagal memuat rgeReports:", err)
     );
     const unsubTargets = onSnapshot(
@@ -1049,9 +1049,9 @@ export default function PapanKegiatan() {
             <div className="flex flex-col gap-4">
               <div>
                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
-                <p className="text-sm text-slate-500 mt-1">Rangkuman semua kegiatan yang sudah tercatat, dari input web dan laporan grup WA.</p>
+                <p className="text-sm text-slate-500 mt-1">Target vs pencapaian bulanan per RGE.</p>
               </div>
-              <RekapKPI members={members} rgeReports={rgeReports} activities={activities} onOpenActivity={(id) => setDetailId(id)} />
+              <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} activities={activities} onOpenActivity={(id) => setDetailId(id)} />
             </div>
           )}
 
@@ -2248,13 +2248,19 @@ function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, 
 // dikelompokkan per branch (tab), sumber datanya koleksi Firestore "rgeReports" yang ditulis n8n. ----------
 const KATEGORI_LABEL = {
   posm: "Branding", event: "Event", dtu: "DTU", desa: "Desa",
-  school: "School", fwa: "FWA", nota: "Nota",
+  school: "School", fwa: "FWA", nota: "Nota", stok: "Stok",
 };
 // Field di sini PERSIS mengikuti header yang ditulis n8n ke Sheets/Firestore (PascalCase):
 // Kategori, NamaEvent, NamaLokasi, NamaDesa, SiteId, NamaSekolah, SP_IM3, SP_3ID, FWA, Msisdn,
 // Imei, Nominal, PosmItems (disimpan sebagai STRING JSON, bukan object -- perlu JSON.parse).
 function ringkasanLaporan(r) {
   const cat = r.Kategori || r.category;
+  if (cat === "stok") {
+    let items = {};
+    try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || {}); } catch { items = {}; }
+    const NAMA = { posterSpIM3: "Poster SP IM3", posterSpTri: "Poster SP Tri", posterRebuyIM3: "Poster Rebuy IM3", posterRebuyTri: "Poster Rebuy Tri", flagchainIM3: "Flagchain IM3", flagchainTri: "Flagchain Tri" };
+    return [r.NamaLokasi || r.namaLokasi, Object.entries(items).map(([k, v]) => `${NAMA[k] || k} ${v}`).join(", ")].filter(Boolean).join(" · ");
+  }
   if (cat === "posm") {
     let items = {};
     try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || r.posmItems || {}); }
@@ -2283,9 +2289,9 @@ function ringkasanLaporan(r) {
 // kalau tidak ada baru dijumlahkan dari laporan WA-nya.
 const HASIL_FIELDS = [
   ["spIM3", "SP IM3"], ["sp3ID", "SP 3ID"], ["hifi", "Hifi/FWA"], ["poster", "Poster"],
-  ["shopblind", "Shopblind"], ["vinil", "Vinil"], ["spanduk", "Spanduk"], ["rontek", "Rontek"],
+  ["shopblind", "Shopblind"], ["vinil", "Vinil"], ["spanduk", "Spanduk"], ["rontek", "Rontek"], ["outlet", "Outlet"], ["wall", "Wall"],
 ];
-const emptyHasil = () => ({ spIM3: 0, sp3ID: 0, hifi: 0, poster: 0, shopblind: 0, vinil: 0, spanduk: 0, rontek: 0 });
+const emptyHasil = () => ({ spIM3: 0, sp3ID: 0, hifi: 0, poster: 0, shopblind: 0, vinil: 0, spanduk: 0, rontek: 0, outlet: 0, wall: 0 });
 function addHasil(target, src) {
   HASIL_FIELDS.forEach(([k]) => { target[k] += Number(src?.[k]) || 0; });
   return target;
@@ -2297,7 +2303,7 @@ function hasilFromReport(r) {
   return {
     spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0,
     hifi: Number(r.FWA ?? r.fwa) || 0, poster: g("poster"), shopblind: g("shopblind"), vinil: 0,
-    spanduk: g("spanduk"), rontek: g("rontek") + g("rountag") + g("roundtag"),
+    spanduk: g("spanduk"), rontek: g("rontek") + g("rountag") + g("roundtag"), outlet: g("outlet"), wall: g("wall"),
   };
 }
 function reportDateLocal(r) {
@@ -2308,95 +2314,6 @@ function reportDateLocal(r) {
 }
 function reportDetailText(r) {
   return r.NamaEvent || r.namaEvent || r.NamaLokasi || r.namaLokasi || r.NamaDesa || r.namaDesa || r.NamaSekolah || r.namaSekolah || "";
-}
-
-// ---------- Sinkronisasi data laporan WA/Sheet <-> web (normalisasi rgeReports) ----------
-// rgeReports berasal dari 2 pintu: (1) n8n saat laporan masuk dari grup WA, (2) n8n "Sinkron Sheet -> Web"
-// yang menambahkan baris Google Sheet (REKAP RGE) yang belum ada di Firestore. Karena itu:
-//  - dokumen dengan MessageId yang sama dianggap SATU laporan (dedup), supaya tidak terhitung dobel;
-//  - baris "web_<id>" (hasil input web yang ditulis balik ke Sheet) dibuang -- sumber aslinya activities.hasil;
-//  - angka SP / item POSM / item stok yang kosong di dokumen dibaca ulang dari RawCaption (caption asli WA),
-//    karena sebagian baris lama tersimpan dengan angka 0 padahal captionnya berisi angka.
-const POSM_COLS = [["poster", "Poster"], ["spanduk", "Spanduk"], ["rountag", "Rountag"], ["shopblind", "Shopblind"], ["outlet", "Outlet"], ["wall", "Wall"], ["vinil", "Vinil"]];
-const STOK_COLS = [
-  ["posterSpIM3", "Poster SP IM3", "poster\\s*sp\\.?\\s*im3"],
-  ["posterSpTri", "Poster SP Tri", "poster\\s*sp\\.?\\s*(?:tri|3\\s*id)"],
-  ["posterRebuyIM3", "Poster Rebuy IM3", "poster\\s*rebuy\\s*im3"],
-  ["posterRebuyTri", "Poster Rebuy Tri", "poster\\s*rebuy\\s*(?:tri|3\\s*id)"],
-  ["flagchainIM3", "Flagchain IM3", "flag\\s*chain\\s*im3"],
-  ["flagchainTri", "Flagchain Tri", "flag\\s*chain\\s*(?:tri|3\\s*id)"],
-];
-const RE_CAP_IM3 = /(?:\bsp[ \t]*)?\bim3\b[ \t]*[:=]?[ \t]*(\d+)/i;
-const RE_CAP_3ID = /(?:\bsp[ \t]*)?\b(?:3[ \t]*id|tri(?:[ \t]*id)?)\b[ \t]*[:=]?[ \t]*(\d+)/i;
-function captionBody(raw) {
-  return String(raw || "").replace(/^\s*(posm|stok|event|dtu|desa|school|fwa|nota)\b\s*:?\s*/i, "").trim();
-}
-function parseSpFromCaption(raw) {
-  const t = captionBody(raw);
-  const a = t.match(RE_CAP_IM3), b = t.match(RE_CAP_3ID);
-  return { spIM3: a ? Number(a[1]) : 0, sp3ID: b ? Number(b[1]) : 0 };
-}
-const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function parsePosmFromCaption(raw) {
-  const body = captionBody(raw);
-  const names = ["spanduk", "poster", "rountag", "roundtag", "shopblind", "outlet", "wall"];
-  const items = {};
-  names.forEach((n) => {
-    const m = body.match(new RegExp("\\b" + escRe(n) + "\\b[ \\t]*[:=]?[ \\t]*(\\d+)", "i"));
-    if (m && Number(m[1]) > 0) items[n] = Number(m[1]);
-  });
-  const cut = new RegExp("\\b(" + names.map(escRe).join("|") + ")\\b[ \\t]*(?:[:=]|\\d)", "i").exec(body);
-  const nama = (cut ? body.slice(0, cut.index) : "").replace(/^[:\-,\s]+/, "").replace(/[:\-,\s]+$/, "").trim();
-  return { items, nama };
-}
-function parseStokFromCaption(raw) {
-  const body = captionBody(raw);
-  const items = {};
-  STOK_COLS.forEach(([k, , pat]) => {
-    const m = body.match(new RegExp(pat + "[ \\t]*[:=]?[ \\t]*(\\d+)", "i"));
-    if (m) items[k] = Number(m[1]); // 0 = stok habis, beda dengan item yang tidak ditulis
-  });
-  const cut = new RegExp("(?:" + STOK_COLS.map((s) => s[2]).join("|") + ")", "i").exec(body);
-  const nama = (cut ? body.slice(0, cut.index) : body).replace(/^[:\-,\s]+/, "").replace(/[:\-,\s]+$/, "").trim();
-  return { items, nama };
-}
-function itemsOfReport(r) {
-  let items = r.PosmItems ?? r.posmItems ?? r.StokItems ?? r.stokItems ?? {};
-  if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
-  return items && typeof items === "object" ? items : {};
-}
-function reportScore(r) {
-  return (r.FotoURL || r.fotoUrl ? 2 : 0) + (r.ActivityId || r.activityId ? 1 : 0);
-}
-function fixReport(r) {
-  const cat = String(r.Kategori || r.category || "").toLowerCase();
-  const raw = r.RawCaption || r.rawCaption || "";
-  const out = { ...r };
-  if (["dtu", "desa", "school", "event", "nota"].includes(cat)) {
-    const im3 = Number(r.SP_IM3 ?? r.spIM3) || 0, id3 = Number(r.SP_3ID ?? r.sp3ID) || 0;
-    if (im3 + id3 === 0) {
-      const p = parseSpFromCaption(raw);
-      if (p.spIM3 + p.sp3ID > 0) { out.SP_IM3 = p.spIM3; out.SP_3ID = p.sp3ID; }
-    }
-  } else if (cat === "posm" || cat === "stok") {
-    if (!Object.keys(itemsOfReport(r)).length) {
-      const p = cat === "posm" ? parsePosmFromCaption(raw) : parseStokFromCaption(raw);
-      if (Object.keys(p.items).length) out.PosmItems = JSON.stringify(p.items);
-      if (!(r.NamaLokasi || r.namaLokasi) && p.nama) out.NamaLokasi = p.nama;
-    }
-  }
-  return out;
-}
-function normalizeRgeReports(list) {
-  const byKey = new Map();
-  (list || []).forEach((r) => {
-    const mid = String(r.MessageId || r.messageId || "").trim();
-    if (mid.startsWith("web_")) return;
-    const key = mid || `doc:${r.id}`;
-    const prev = byKey.get(key);
-    if (!prev || reportScore(r) > reportScore(prev)) byKey.set(key, r);
-  });
-  return [...byKey.values()].map(fixReport);
 }
 
 // Daftar foto galeri (dipakai tampilan web DAN PDF supaya isinya selalu sama).
@@ -2801,9 +2718,8 @@ function GaleriPerBranch({ members, rgeReports }) {
   );
 }
 
-// ---------- Pencapaian KPI: rangkuman pencatatan kegiatan (quick count) + tabel Branding/POSM + Stok MC.
-// Input target SENGAJA dilepas dulu dari menu ini (TargetKPIModal & saveKpiTarget masih ada di file ini,
-// tinggal dipasang lagi di RekapKPI kalau nanti target dibutuhkan lagi). ----------
+// ---------- Rekap KPI RGE: target vs pencapaian bulanan per RGE, mirip format Excel yang dipakai
+// tim (kolom Target SP/FWA/Desa/School + % Achv), bisa diatur targetnya & diexport ke Excel. ----------
 function monthKeyOf(cursor) { return `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`; }
 function pct(achv, target) { return target > 0 ? Math.round((achv / target) * 100) : 0; }
 
@@ -2887,311 +2803,426 @@ function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
   );
 }
 
-// ---------- Pencapaian KPI: rangkuman semua pencatatan (input web + laporan WA/Sheet), tanpa input target ----------
-// Sumber data SAMA dengan Rekap Bulanan/Excel/Galeri PDF (buildRekapBulanan), jadi angkanya selalu konsisten:
-//  - kegiatan di web yang sudah ada hasil/foto/selesai,
-//  - laporan WA (rgeReports) yang terhubung ke jadwal TIDAK dihitung dua kali,
-//  - laporan WA yang belum terhubung ke jadwal tetap dihitung.
-function tglPendek(ymd) {
-  const [y, m, d] = String(ymd || "").slice(0, 10).split("-").map(Number);
-  return y ? `${d} ${BULAN[m - 1].slice(0, 3)} ${String(y).slice(2)}` : "-";
-}
-const QC_ZERO = () => ({ dtuN: 0, dtuIM3: 0, dtu3ID: 0, desaIM3: 0, desa3ID: 0, schIM3: 0, sch3ID: 0 });
-function qcAdd(t, r) { Object.keys(QC_ZERO()).forEach((k) => { t[k] += r[k]; }); return t; }
-function qcDerive(r) {
-  const dtuTotal = r.dtuIM3 + r.dtu3ID, desaTotal = r.desaIM3 + r.desa3ID, schTotal = r.schIM3 + r.sch3ID;
-  const totalIM3 = r.dtuIM3 + r.desaIM3 + r.schIM3, total3ID = r.dtu3ID + r.desa3ID + r.sch3ID;
-  return { ...r, dtuTotal, desaTotal, schTotal, totalIM3, total3ID, totalAll: totalIM3 + total3ID };
-}
-function buildQuickCount({ activities, members, rgeReports, cursor, branchFilter }) {
-  const { rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
-  const pj = (row, jenis) => row.perJenis[jenis] || { n: 0, hasil: emptyHasil() };
-  const list = rows.map((row) => {
-    const dtu = pj(row, "DTU"), desa = pj(row, "Attack Desa"), sch = pj(row, "Attack School");
-    return qcDerive({
-      key: row.key, name: row.name, branch: row.branch && row.branch !== "TIDAK TERDAFTAR" ? row.branch : "",
-      dtuN: dtu.n, dtuIM3: dtu.hasil.spIM3, dtu3ID: dtu.hasil.sp3ID,
-      desaIM3: desa.hasil.spIM3, desa3ID: desa.hasil.sp3ID, schIM3: sch.hasil.spIM3, sch3ID: sch.hasil.sp3ID,
-    });
-  });
-  const order = [], byBranch = new Map();
-  list.forEach((r) => {
-    const b = r.branch || "Belum terdaftar";
-    if (!byBranch.has(b)) { byBranch.set(b, { branch: b, rows: [], sum: QC_ZERO() }); order.push(b); }
-    const g = byBranch.get(b); g.rows.push(r); qcAdd(g.sum, r);
-  });
-  const groups = order.filter((b) => b !== "Belum terdaftar").concat(order.includes("Belum terdaftar") ? ["Belum terdaftar"] : [])
-    .map((b) => { const g = byBranch.get(b); return { ...g, sum: qcDerive(g.sum) }; });
-  const grand = qcDerive(list.reduce((acc, r) => qcAdd(acc, r), QC_ZERO()));
-  return { groups, grand };
-}
-
-// Branding/POSM: 1 baris = 1 laporan (lokasi). Item dari laporan WA "posm" + hasil Branding yang diinput di web.
-function sumItems(items) { return Object.values(items).reduce((a, v) => a + (Number(v) || 0), 0); }
-function buildPosmRows({ activities, members, rgeReports, cursor, branchFilter }) {
-  const monthPrefix = monthKeyOf(cursor);
-  const actById = new Map(activities.map((a) => [a.id, a]));
-  const rows = [];
-  const webActIds = new Set();
-  activities.forEach((a) => {
-    if (normalizeJenisKegiatan(a.jenisKegiatan) !== "Branding" || !String(a.date || "").startsWith(monthPrefix)) return;
-    const h = a.hasil || {};
-    const items = { poster: Number(h.poster) || 0, spanduk: Number(h.spanduk) || 0, rountag: (Number(h.rontek) || 0) + (Number(h.rountag) || 0),
-      shopblind: Number(h.shopblind) || 0, outlet: Number(h.outlet) || 0, wall: Number(h.wall) || 0, vinil: Number(h.vinil) || 0 };
-    if (!sumItems(items)) return;
-    const mem = members.find((m) => m.id === a.assignedMemberId);
-    if (branchFilter && mem?.branch !== branchFilter) return;
-    webActIds.add(a.id);
-    rows.push({ key: `web-${a.id}`, tanggal: a.date, rge: mem?.name || "(tanpa PIC)", branch: mem?.branch || "", nama: a.title || a.location || "", items, sumber: "Web" });
-  });
+// ---------- Pencapaian KPI = "Quick Count" semua pencatatan kegiatan (web + grup WA) ----------
+// Menggantikan halaman target-vs-pencapaian lama (komponen lama disimpan di bawah sebagai
+// RekapKPITargetLama, tidak dipakai). Angka berasal dari buildRekapBulanan(), jadi sama persis dengan
+// export "Rekap Excel" di menu Laporan & Rekap.
+const KPI_STOK_ITEMS = [
+  ["posterSpIM3", "Poster SP IM3"], ["posterSpTri", "Poster SP Tri"], ["posterRebuyIM3", "Poster Rebuy IM3"],
+  ["posterRebuyTri", "Poster Rebuy Tri"], ["flagchainIM3", "Flagchain IM3"], ["flagchainTri", "Flagchain Tri"],
+];
+const KPI_POSM_ITEMS = [
+  ["poster", "Poster"], ["spanduk", "Spanduk"], ["rontek", "Rountag"], ["shopblind", "Shopblind"], ["outlet", "Outlet"], ["wall", "Wall"],
+];
+// Stok terbaru per MC: laporan "stok" yang paling baru untuk nama MC yang sama menggantikan yang lama.
+function latestStokPerMC(rgeReports, members, branchFilter = null) {
+  const latest = new Map();
   rgeReports.forEach((r) => {
-    if (String(r.Kategori || r.category || "").toLowerCase() !== "posm") return;
-    const aid = r.ActivityId || r.activityId;
-    if (aid && webActIds.has(aid)) return; // sudah dihitung dari hasil web (tidak dobel)
-    const act = aid ? actById.get(aid) : null;
-    const date = act?.date || reportDateLocal(r);
-    if (!date || !date.startsWith(monthPrefix)) return;
-    const raw = itemsOfReport(r);
-    const g = (k) => Number(raw[k]) || 0;
-    const items = { poster: g("poster"), spanduk: g("spanduk"), rountag: g("rountag") + g("roundtag") + g("rontek"), shopblind: g("shopblind"), outlet: g("outlet"), wall: g("wall"), vinil: g("vinil") };
-    if (!sumItems(items)) return;
-    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender || r.phone));
-    const rawBranch = mem?.branch || r.Branch || r.branch || "";
-    const branch = rawBranch === "TIDAK TERDAFTAR" ? "" : rawBranch;
-    if (branchFilter && branch !== branchFilter) return;
-    rows.push({ key: `wa-${r.MessageId || r.id}`, tanggal: date, rge: mem?.name || r.NamaRGE || r.Sender || "(tidak dikenal)", branch,
-      nama: r.NamaLokasi || r.namaLokasi || act?.title || "", items, sumber: "WA" });
+    if (String(r.Kategori || r.category || "").toLowerCase() !== "stok") return;
+    const mc = String(r.NamaLokasi || r.namaLokasi || "").trim();
+    if (!mc) return;
+    const key = mc.toLowerCase().replace(/\s+/g, " ");
+    const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
+    const prev = latest.get(key);
+    if (!prev || ts > prev.ts) latest.set(key, { r, ts, mc });
   });
-  rows.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.rge.localeCompare(b.rge));
-  const total = {};
-  POSM_COLS.forEach(([k]) => { total[k] = rows.reduce((a, r) => a + (r.items[k] || 0), 0); });
-  return { rows, total, showVinil: total.vinil > 0 };
+  const rows = [...latest.values()].map(({ r, ts, mc }) => {
+    let items = r.PosmItems ?? r.posmItems ?? {};
+    if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
+    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender));
+    const branch = mem?.branch || (String(r.Branch || "") === "TIDAK TERDAFTAR" ? "" : r.Branch) || "";
+    return { mc, items: items || {}, rge: mem?.name || r.NamaRGE || r.Sender || "", branch, tanggal: reportDateLocal(r) || ts.slice(0, 10), foto: r.FotoURL || r.fotoUrl || "" };
+  }).filter((x) => !branchFilter || x.branch === branchFilter);
+  return rows.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || a.branch.localeCompare(b.branch) || a.mc.localeCompare(b.mc));
 }
 
-// Stok MC: kondisi TERAKHIR yang dilaporkan per MC (bukan dijumlah antar laporan). Item yang tidak ditulis di
-// laporan terbaru tetap memakai angka dari laporan sebelumnya; angka 0 ditampilkan sebagai stok habis.
-function buildStokRows({ members, rgeReports, branchFilter }) {
-  const stokReports = rgeReports.filter((r) => String(r.Kategori || r.category || "").toLowerCase() === "stok")
-    .sort((a, b) => String(a.Timestamp || a.receivedAt || "").localeCompare(String(b.Timestamp || b.receivedAt || "")));
-  const byMc = new Map();
-  stokReports.forEach((r) => {
-    const nama = String(r.NamaLokasi || r.namaLokasi || "").replace(/\s+/g, " ").trim() || "(tanpa nama MC)";
-    const key = nama.toLowerCase().replace(/\s+/g, " ");
-    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender || r.phone));
-    const rawBranch = mem?.branch || r.Branch || r.branch || "";
-    const branch = rawBranch === "TIDAK TERDAFTAR" ? "" : rawBranch;
-    if (branchFilter && branch !== branchFilter) return;
-    const row = byMc.get(key) || { key, nama, branch, rge: "", items: {}, terakhir: "" };
-    const raw = itemsOfReport(r);
-    STOK_COLS.forEach(([k]) => { if (raw[k] !== undefined && raw[k] !== null && raw[k] !== "") row.items[k] = Number(raw[k]) || 0; });
-    row.nama = nama; row.branch = branch || row.branch;
-    row.rge = mem?.name || r.NamaRGE || row.rge;
-    row.terakhir = reportDateLocal(r) || row.terakhir;
-    byMc.set(key, row);
+function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter }) {
+  const { rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
+  const g = (row, j) => row.perJenis[j] || { n: 0, hasil: emptyHasil() };
+  const quick = rows.map((r) => {
+    const blok = ["DTU", "Attack Desa", "Attack School"].map((j) => {
+      const x = g(r, j);
+      return { n: x.n, im3: x.hasil.spIM3, id3: x.hasil.sp3ID, total: x.hasil.spIM3 + x.hasil.sp3ID };
+    });
+    const tIM3 = blok.reduce((s, b) => s + b.im3, 0), t3ID = blok.reduce((s, b) => s + b.id3, 0);
+    return { name: r.name, branch: r.branch, blok, tIM3, t3ID, total: tIM3 + t3ID };
   });
-  const rows = [...byMc.values()].sort((a, b) => (a.branch || "~").localeCompare(b.branch || "~") || a.nama.localeCompare(b.nama));
-  const total = {};
-  STOK_COLS.forEach(([k]) => { total[k] = rows.reduce((a, r) => a + (r.items[k] || 0), 0); });
-  return { rows, total };
+  const posm = rows.map((r) => {
+    const x = g(r, "Branding");
+    return { name: r.name, branch: r.branch, n: x.n, items: x.hasil };
+  });
+  return { quick, posm, stok: latestStokPerMC(rgeReports, members, branchFilter) };
+}
+
+function exportKpiQuickCountExcel(data, cursor, branchFilter) {
+  const monthKey = monthKeyOf(cursor);
+  const h1 = ["Branch", "RGE", "DTU Jml", "DTU IM3", "DTU 3ID", "DTU Total", "Desa Jml", "Desa IM3", "Desa 3ID", "Desa Total", "School Jml", "School IM3", "School 3ID", "School Total", "Total IM3", "Total 3ID", "TOTAL IM3+3ID"];
+  const body1 = data.quick.map((r) => [r.branch, r.name, ...r.blok.flatMap((b) => [b.n, b.im3, b.id3, b.total]), r.tIM3, r.t3ID, r.total]);
+  const tot = (i) => body1.reduce((s, row) => s + (Number(row[i]) || 0), 0);
+  const ws1 = XLSX.utils.aoa_to_sheet([h1, ...body1, ["TOTAL", "", ...h1.slice(2).map((_, i) => tot(i + 2))]]);
+  ws1["!cols"] = h1.map((h, i) => ({ wch: i === 0 ? 16 : i === 1 ? 26 : 11 }));
+  const h2 = ["Branch", "RGE", "Jml Laporan", ...KPI_POSM_ITEMS.map(([, l]) => l), "Vinil"];
+  const body2 = data.posm.map((r) => [r.branch, r.name, r.n, ...KPI_POSM_ITEMS.map(([k]) => r.items[k] || 0), r.items.vinil || 0]);
+  const tot2 = (i) => body2.reduce((s, row) => s + (Number(row[i]) || 0), 0);
+  const ws2 = XLSX.utils.aoa_to_sheet([h2, ...body2, ["TOTAL", "", ...h2.slice(2).map((_, i) => tot2(i + 2))]]);
+  ws2["!cols"] = h2.map((h, i) => ({ wch: i === 0 ? 16 : i === 1 ? 26 : 12 }));
+  const h3 = ["Nama MC", "Branch", "RGE Pelapor", "Update Terakhir", ...KPI_STOK_ITEMS.map(([, l]) => l)];
+  const body3 = data.stok.map((r) => [r.mc, r.branch, r.rge, r.tanggal, ...KPI_STOK_ITEMS.map(([k]) => (r.items[k] === undefined ? "" : r.items[k]))]);
+  const ws3 = XLSX.utils.aoa_to_sheet([h3, ...body3]);
+  ws3["!cols"] = h3.map((h, i) => ({ wch: i === 0 ? 24 : i === 2 ? 24 : 15 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, "Quick Count SP");
+  XLSX.utils.book_append_sheet(wb, ws2, "Branding-POSM");
+  XLSX.utils.book_append_sheet(wb, ws3, "Stok MC");
+  XLSX.writeFile(wb, `Quick-Count-KPI-${monthKey}${branchFilter ? "-" + branchFilter.replace(/\s+/g, "") : ""}.xlsx`);
 }
 
 function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
-  const [branch, setBranch] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
   const monthKey = monthKeyOf(cursor);
-  const branchFilter = branch || null;
-  const branches = [...new Set(members.map((m) => m.branch).filter((b) => b && b !== "TIDAK TERDAFTAR"))].sort();
+  const branches = sortBranches(Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))));
+  const data = kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter: branchFilter || null });
+  const prevMonth = () => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }));
+  const nextMonth = () => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }));
 
-  const qc = buildQuickCount({ activities, members, rgeReports, cursor, branchFilter });
-  const posm = buildPosmRows({ activities, members, rgeReports, cursor, branchFilter });
-  const stok = buildStokRows({ members, rgeReports, branchFilter });
-
-  // Req Branding (SLA serah terima) tetap ada di halaman ini -- sama seperti sebelumnya, per bulan permintaan.
+  // Req Branding (SLA serah terima) tetap dipertahankan -- berbasis jadwal, bukan target.
   const reqBrandingRows = activities
     .filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === "Req Branding" && String(a.date || "").startsWith(monthKey))
     .map((a) => ({ activity: a, member: members.find((m) => m.id === a.assignedMemberId), sla: reqBrandingSLA(a) }))
     .sort((a, b) => String(a.activity.date).localeCompare(String(b.activity.date)));
   const reqBrandingLate = reqBrandingRows.filter((r) => r.sla.onTime === false).length;
 
-  const g = qc.grand;
-  const label = branch ? ` — ${branch}` : "";
-
-  function exportExcel() {
-    const head1 = ["Branch", "Nama RGE", "DTU (jml)", "DTU IM3", "DTU 3ID", "DTU Total", "Desa IM3", "Desa 3ID", "Desa Total", "School IM3", "School 3ID", "School Total", "Total IM3", "Total 3ID", "TOTAL IM3+3ID"];
-    const line = (r, br, nm) => [br, nm, r.dtuN, r.dtuIM3, r.dtu3ID, r.dtuTotal, r.desaIM3, r.desa3ID, r.desaTotal, r.schIM3, r.sch3ID, r.schTotal, r.totalIM3, r.total3ID, r.totalAll];
-    const body = [];
-    qc.groups.forEach((grp) => {
-      grp.rows.forEach((r) => body.push(line(r, grp.branch, r.name)));
-      body.push(line(grp.sum, grp.branch, `Subtotal ${grp.branch}`));
-    });
-    body.push(line(g, "", "TOTAL"));
-    const posmHead = ["Tanggal", "RGE", "Branch", "Nama Outlet/Jalan", ...POSM_COLS.map((c) => c[1]), "Sumber"];
-    const posmBody = posm.rows.map((r) => [r.tanggal, r.rge, r.branch, r.nama, ...POSM_COLS.map(([k]) => r.items[k] || 0), r.sumber]);
-    posmBody.push(["", "Total", "", "", ...POSM_COLS.map(([k]) => posm.total[k]), ""]);
-    const stokHead = ["Nama MC", "Branch", "Dilaporkan oleh", ...STOK_COLS.map((c) => c[1]), "Update terakhir"];
-    const stokBody = stok.rows.map((r) => [r.nama, r.branch, r.rge, ...STOK_COLS.map(([k]) => (r.items[k] === undefined ? "" : r.items[k])), r.terakhir]);
-    stokBody.push(["Total", "", "", ...STOK_COLS.map(([k]) => stok.total[k]), ""]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head1, ...body]), "Pencapaian KPI");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([posmHead, ...posmBody]), "Branding-POSM");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([stokHead, ...stokBody]), "Stok MC");
-    XLSX.writeFile(wb, `Pencapaian-KPI-RGE-${monthKey}${branch ? "-" + branch.replace(/\s+/g, "") : ""}.xlsx`);
-  }
-
-  const th = "border border-slate-200 px-2 py-1.5";
-  const td = "border border-slate-200 px-2 py-1 text-center tabular-nums";
-  const num = (v) => <span className={v ? "text-slate-800" : "text-slate-300"}>{v}</span>;
-  const QCRow = ({ r, name, strong, bg }) => (
-    <tr className={bg || "hover:bg-slate-50"}>
-      <td className={`border border-slate-200 px-2 py-1 text-left ${strong ? "font-bold text-slate-900" : "font-medium text-slate-800"}`}>{name}</td>
-      {[r.dtuN, r.dtuIM3, r.dtu3ID, r.dtuTotal, r.desaIM3, r.desa3ID, r.desaTotal, r.schIM3, r.sch3ID, r.schTotal, r.totalIM3, r.total3ID, r.totalAll].map((v, i) => (
-        <td key={i} className={`${td} ${strong || i >= 10 ? "font-bold" : ""} ${i === 12 ? "bg-indigo-50/60" : ""}`}>{strong ? v : num(v)}</td>
-      ))}
-    </tr>
-  );
+  const th = "border border-slate-200 px-2 py-1.5 text-center font-bold";
+  const td = "border border-slate-200 px-2 py-1.5 text-center";
+  const num = (v) => (v ? v : <span className="text-slate-300">0</span>);
+  const sumQ = (pick) => data.quick.reduce((s, r) => s + pick(r), 0);
+  const posmTotal = (k) => data.posm.reduce((s, r) => s + (r.items[k] || 0), 0);
+  const adaVinil = data.posm.some((r) => r.items.vinil > 0);
+  const BLOK = [["DTU", "bg-indigo-50 text-indigo-700"], ["Desa", "bg-emerald-50 text-emerald-700"], ["School", "bg-amber-50 text-amber-700"]];
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
-          <div className="flex items-center gap-2">
-            <ClipboardList size={17} className="text-indigo-600" />
-            <h3 className="font-bold text-base text-slate-900">Rangkuman Pencatatan Kegiatan{label}</h3>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <select value={branch} onChange={(e) => setBranch(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700">
-              <option value="">Semua branch</option>
-              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-            <IconBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><ChevronLeft size={16} /></IconBtn>
-            <span className="text-sm font-semibold text-slate-700 min-w-[120px] text-center">{BULAN[cursor.m]} {cursor.y}</span>
-            <IconBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><ChevronRight size={16} /></IconBtn>
-            <GhostBtn onClick={exportExcel}><Download size={14} /> Excel</GhostBtn>
-            <GhostBtn onClick={() => window.print()}><Download size={14} /> PDF (Print)</GhostBtn>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
+          <p className="text-sm text-slate-500 mt-1">Quick count seluruh pencatatan kegiatan — input dari web maupun laporan grup WhatsApp.</p>
         </div>
-        <p className="text-[11px] text-slate-400 mb-4">Gabungan input dari web dan laporan grup WA. Laporan WA yang sudah terhubung ke jadwal tidak dihitung dua kali. Angka = pcs SP terjual.</p>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {[["Jumlah DTU", g.dtuN], ["Total IM3", g.totalIM3], ["Total 3ID", g.total3ID], ["TOTAL IM3 + 3ID", g.totalAll]].map(([t, v]) => (
-            <div key={t} className="rounded-xl border border-slate-200 px-3 py-2.5">
-              <div className="text-[11px] text-slate-500">{t}</div>
-              <div className="text-2xl font-black text-slate-900 tabular-nums">{v.toLocaleString("id-ID")}</div>
-            </div>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-600 bg-white">
+            <option value="">Semua Branch</option>
+            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <IconBtn onClick={prevMonth} title="Bulan sebelumnya"><ChevronLeft size={16} /></IconBtn>
+          <span className="text-xs font-bold text-slate-700 min-w-[110px] text-center">{BULAN[cursor.m]} {cursor.y}</span>
+          <IconBtn onClick={nextMonth} title="Bulan berikutnya"><ChevronRight size={16} /></IconBtn>
+          <GhostBtn onClick={() => exportKpiQuickCountExcel(data, cursor, branchFilter || null)}><Download size={14} /> Excel</GhostBtn>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="text-slate-600">
-                <th className={`${th} bg-slate-100 text-left min-w-[150px]`} rowSpan={2}>Nama RGE</th>
-                <th className={`${th} bg-indigo-50`} colSpan={4}>DTU</th>
-                <th className={`${th} bg-emerald-50`} colSpan={3}>Desa</th>
-                <th className={`${th} bg-amber-50`} colSpan={3}>School</th>
-                <th className={`${th} bg-slate-100`} colSpan={3}>Total (DTU + Desa + School)</th>
-              </tr>
-              <tr className="text-slate-500">
-                {["Jml", "IM3", "3ID", "Total"].map((h) => <th key={"d" + h} className={`${th} bg-indigo-50/50 font-semibold`}>{h}</th>)}
-                {["IM3", "3ID", "Total"].map((h) => <th key={"v" + h} className={`${th} bg-emerald-50/50 font-semibold`}>{h}</th>)}
-                {["IM3", "3ID", "Total"].map((h) => <th key={"s" + h} className={`${th} bg-amber-50/50 font-semibold`}>{h}</th>)}
-                {["IM3", "3ID", "TOTAL"].map((h) => <th key={"t" + h} className={`${th} bg-slate-50 font-bold`}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {qc.groups.map((grp) => (
-                <Fragment key={grp.branch}>
-                  <QCRow r={grp.sum} name={grp.branch} strong bg="bg-slate-100" />
-                  {grp.rows.map((r) => <QCRow key={r.key} r={r} name={<span className="pl-3">{r.name}</span>} />)}
-                </Fragment>
-              ))}
-              <QCRow r={g} name="TOTAL" strong bg="bg-indigo-100" />
-            </tbody>
-          </table>
-        </div>
-        {qc.groups.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada anggota RGE atau laporan untuk bulan ini.</p>}
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-1"><Package size={16} className="text-amber-600" /><h3 className="font-bold text-base text-slate-900">Branding/POSM{label}</h3></div>
-        <p className="text-[11px] text-slate-400 mb-3">Dari laporan "posm" di grup WA dan hasil Branding yang diinput di web, {BULAN[cursor.m]} {cursor.y}. Angka di laporan otomatis masuk ke item yang sesuai.</p>
+      {/* Tabel 1: DTU / Desa / School */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
+        <h3 className="font-bold text-slate-900 mb-1">Penjualan SP per RGE — DTU, Desa, School</h3>
+        <p className="text-[11px] text-slate-400 mb-3">Jml = jumlah kegiatan tercatat. Total = IM3 + 3ID. Kolom TOTAL di kanan = seluruh IM3 + 3ID dari DTU, Desa, dan School.</p>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full text-xs border-collapse min-w-[1000px]">
             <thead>
-              <tr className="bg-slate-100 text-slate-600">
-                <th className={`${th} text-left`}>Tanggal</th>
-                <th className={`${th} text-left`}>RGE</th>
-                <th className={`${th} text-left`}>Branch</th>
-                <th className={`${th} text-left min-w-[160px]`}>Nama Outlet/Jalan</th>
-                {POSM_COLS.filter(([k]) => k !== "vinil" || posm.showVinil).map(([k, l]) => <th key={k} className={th}>{l}</th>)}
-                <th className={th}>Sumber</th>
+              <tr className="bg-slate-50 text-slate-500">
+                <th rowSpan={2} className={`${th} text-left`}>Branch</th>
+                <th rowSpan={2} className={`${th} text-left`}>RGE</th>
+                {BLOK.map(([l, c]) => <th key={l} colSpan={4} className={`${th} ${c}`}>{l}</th>)}
+                <th rowSpan={2} className={th}>Total IM3</th>
+                <th rowSpan={2} className={th}>Total 3ID</th>
+                <th rowSpan={2} className={`${th} bg-slate-900 text-white`}>TOTAL</th>
+              </tr>
+              <tr className="bg-slate-50 text-slate-500">
+                {BLOK.map(([l]) => ["Jml", "IM3", "3ID", "Total"].map((h) => <th key={l + h} className={th}>{h}</th>))}
               </tr>
             </thead>
             <tbody>
-              {posm.rows.map((r) => (
-                <tr key={r.key} className="hover:bg-slate-50">
-                  <td className="border border-slate-200 px-2 py-1 whitespace-nowrap">{tglPendek(r.tanggal)}</td>
-                  <td className="border border-slate-200 px-2 py-1 font-medium text-slate-800">{r.rge}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-slate-500">{r.branch || "—"}</td>
-                  <td className="border border-slate-200 px-2 py-1">{r.nama || "—"}</td>
-                  {POSM_COLS.filter(([k]) => k !== "vinil" || posm.showVinil).map(([k]) => <td key={k} className={td}>{r.items[k] ? <b className="text-slate-800">{r.items[k]}</b> : <span className="text-slate-300">-</span>}</td>)}
-                  <td className={`${td} text-slate-500`}>{r.sumber}</td>
+              {data.quick.map((r) => (
+                <tr key={r.name + r.branch} className="hover:bg-slate-50">
+                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
+                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.name}</td>
+                  {r.blok.map((b, i) => [b.n, b.im3, b.id3, b.total].map((v, k) => <td key={i + "-" + k} className={`${td} ${k === 3 ? "font-bold" : ""}`}>{num(v)}</td>))}
+                  <td className={`${td} font-bold`}>{num(r.tIM3)}</td>
+                  <td className={`${td} font-bold`}>{num(r.t3ID)}</td>
+                  <td className={`${td} font-black bg-slate-100`}>{num(r.total)}</td>
                 </tr>
               ))}
-              {posm.rows.length > 0 && (
-                <tr className="bg-slate-100 font-bold text-slate-800">
-                  <td className="border border-slate-200 px-2 py-1" colSpan={4}>Total</td>
-                  {POSM_COLS.filter(([k]) => k !== "vinil" || posm.showVinil).map(([k]) => <td key={k} className={td}>{posm.total[k]}</td>)}
-                  <td className="border border-slate-200" />
+              {data.quick.length > 0 && (
+                <tr className="bg-slate-900 text-white font-bold">
+                  <td className={`${td} text-left`} colSpan={2}>TOTAL</td>
+                  {[0, 1, 2].map((i) => [(b) => b.n, (b) => b.im3, (b) => b.id3, (b) => b.total].map((pick, k) => <td key={i + "-" + k} className={td}>{sumQ((r) => pick(r.blok[i]))}</td>))}
+                  <td className={td}>{sumQ((r) => r.tIM3)}</td>
+                  <td className={td}>{sumQ((r) => r.t3ID)}</td>
+                  <td className={td}>{sumQ((r) => r.total)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {data.quick.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada data untuk bulan ini.</p>}
+        </div>
+      </div>
+
+      {/* Tabel 2: Branding / POSM */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
+        <h3 className="font-bold text-slate-900 mb-1">Branding / POSM</h3>
+        <p className="text-[11px] text-slate-400 mb-3">Jumlah item dijumlahkan dari laporan "posm" di grup WhatsApp dan hasil kegiatan Branding yang diinput di web, per bulan.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse min-w-[720px]">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500">
+                <th className={`${th} text-left`}>Branch</th><th className={`${th} text-left`}>RGE</th><th className={th}>Laporan</th>
+                {KPI_POSM_ITEMS.map(([, l]) => <th key={l} className={th}>{l}</th>)}
+                {adaVinil && <th className={th}>Vinil</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {data.posm.map((r) => (
+                <tr key={r.name + r.branch} className="hover:bg-slate-50">
+                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
+                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.name}</td>
+                  <td className={td}>{num(r.n)}</td>
+                  {KPI_POSM_ITEMS.map(([k]) => <td key={k} className={td}>{num(r.items[k])}</td>)}
+                  {adaVinil && <td className={td}>{num(r.items.vinil)}</td>}
+                </tr>
+              ))}
+              {data.posm.length > 0 && (
+                <tr className="bg-slate-900 text-white font-bold">
+                  <td className={`${td} text-left`} colSpan={2}>TOTAL</td>
+                  <td className={td}>{data.posm.reduce((s, r) => s + r.n, 0)}</td>
+                  {KPI_POSM_ITEMS.map(([k]) => <td key={k} className={td}>{posmTotal(k)}</td>)}
+                  {adaVinil && <td className={td}>{posmTotal("vinil")}</td>}
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        {posm.rows.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan POSM bulan ini. Format di grup: tulis "posm", nama outlet/jalan di baris bawahnya, lalu item (poster, spanduk, rountag, shopblind, outlet, wall) beserta angkanya.</p>}
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-1"><Package size={16} className="text-indigo-600" /><h3 className="font-bold text-base text-slate-900">Stok MC{label}</h3></div>
-        <p className="text-[11px] text-slate-400 mb-3">Stok terakhir yang dilaporkan tiap MC lewat laporan "stok" di grup WA (diperbarui setiap ada laporan baru, tidak dijumlahkan antar laporan). Angka 0 berarti stok habis; tanda "–" berarti item belum pernah dilaporkan.</p>
+      {/* Tabel 3: Stok MC */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
+        <h3 className="font-bold text-slate-900 mb-1">Stok per MC</h3>
+        <p className="text-[11px] text-slate-400 mb-3">Stok terbaru dari laporan "stok" di grup WhatsApp. Laporan baru untuk MC yang sama menggantikan angka sebelumnya (tidak dijumlahkan). Angka merah = stok habis (0).</p>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full text-xs border-collapse min-w-[860px]">
             <thead>
-              <tr className="bg-slate-100 text-slate-600">
-                <th className={`${th} text-left min-w-[130px]`}>Nama MC</th>
-                <th className={`${th} text-left`}>Branch</th>
-                <th className={`${th} text-left`}>Dilaporkan oleh</th>
-                {STOK_COLS.map(([k, l]) => <th key={k} className={th}>{l}</th>)}
-                <th className={th}>Update terakhir</th>
+              <tr className="bg-slate-50 text-slate-500">
+                <th className={`${th} text-left`}>Nama MC</th><th className={`${th} text-left`}>Branch</th><th className={`${th} text-left`}>RGE</th><th className={th}>Update</th>
+                {KPI_STOK_ITEMS.map(([, l]) => <th key={l} className={th}>{l}</th>)}
               </tr>
             </thead>
             <tbody>
-              {stok.rows.map((r) => (
-                <tr key={r.key} className="hover:bg-slate-50">
-                  <td className="border border-slate-200 px-2 py-1 font-medium text-slate-800">{r.nama}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-slate-500">{r.branch || "—"}</td>
-                  <td className="border border-slate-200 px-2 py-1">{r.rge || "—"}</td>
-                  {STOK_COLS.map(([k]) => {
+              {data.stok.map((r) => (
+                <tr key={r.mc} className="hover:bg-slate-50">
+                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.foto ? <a href={r.foto} target="_blank" rel="noreferrer" className="hover:underline">{r.mc}</a> : r.mc}</td>
+                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
+                  <td className={`${td} text-left`}>{r.rge}</td>
+                  <td className={td}>{r.tanggal}</td>
+                  {KPI_STOK_ITEMS.map(([k]) => {
                     const v = r.items[k];
-                    return <td key={k} className={td}>{v === undefined ? <span className="text-slate-300">–</span> : v === 0 ? <b className="text-rose-600">0</b> : <b className="text-slate-800">{v}</b>}</td>;
+                    return <td key={k} className={`${td} ${v === 0 ? "text-rose-600 font-bold bg-rose-50" : ""}`}>{v === undefined ? <span className="text-slate-300">—</span> : v}</td>;
                   })}
-                  <td className={`${td} whitespace-nowrap text-slate-500`}>{tglPendek(r.terakhir)}</td>
                 </tr>
               ))}
-              {stok.rows.length > 0 && (
-                <tr className="bg-slate-100 font-bold text-slate-800">
-                  <td className="border border-slate-200 px-2 py-1" colSpan={3}>Total semua MC</td>
-                  {STOK_COLS.map(([k]) => <td key={k} className={td}>{stok.total[k]}</td>)}
-                  <td className="border border-slate-200" />
-                </tr>
-              )}
             </tbody>
           </table>
+          {data.stok.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan stok. Format: <b>stok</b> → nama MC → Poster SP IM3: n, dst.</p>}
         </div>
-        {stok.rows.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan stok. Format di grup: tulis "stok", nama MC di baris bawahnya, lalu Poster SP IM3 / Poster SP Tri / Poster Rebuy IM3 / Poster Rebuy Tri / Flagchain IM3 / Flagchain Tri beserta angkanya.</p>}
       </div>
 
+      {/* Req Branding (SLA) -- dipertahankan dari halaman lama */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2"><Package size={16} className="text-amber-600" /><h3 className="font-bold text-slate-900">Req Branding — SLA Serah Terima</h3></div>
+          {reqBrandingLate > 0 && <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-full">{reqBrandingLate} terlambat</span>}
+        </div>
+        <p className="text-[11px] text-slate-400 mb-3">Permintaan branding dari GTM Region/HOA ke RGE bulan ini. Target SLA {REQ_BRANDING_SLA_DAYS} hari sejak tanggal permintaan sampai foto serah terima ke DSE/RSE/Depo di-upload.</p>
+        {reqBrandingRows.length === 0 ? (
+          <p className="text-sm text-slate-400 italic">Belum ada permintaan Req Branding bulan ini.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead><tr className="bg-slate-50 text-slate-500 text-left">
+                <th className="border border-slate-200 px-2.5 py-2">Tgl Permintaan</th><th className="border border-slate-200 px-2.5 py-2">RGE</th>
+                <th className="border border-slate-200 px-2.5 py-2">Diserahkan ke</th><th className="border border-slate-200 px-2.5 py-2">Tgl Serah Terima</th><th className="border border-slate-200 px-2.5 py-2">Status SLA</th>
+              </tr></thead>
+              <tbody>
+                {reqBrandingRows.map(({ activity, member, sla }) => (
+                  <tr key={activity.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onOpenActivity?.(activity.id)}>
+                    <td className="border border-slate-200 px-2.5 py-2">{activity.date}</td>
+                    <td className="border border-slate-200 px-2.5 py-2 font-semibold text-slate-700">{member?.name || "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-2">{activity.handoverTo || "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-2">{sla.completedDate ? sla.completedDate.toISOString().slice(0, 10) : "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-2 font-bold" style={{ color: sla.onTime === false ? "#DC2626" : sla.hasHandover ? "#059669" : "#B45309" }}>{sla.statusLabel}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// [Tidak dipakai] Halaman target-vs-pencapaian lama, disimpan kalau input target mau dihidupkan lagi.
+function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, activities = [], onOpenActivity }) {
+  const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
+  const [editMember, setEditMember] = useState(null);
+  const monthKey = monthKeyOf(cursor);
+
+  const rgeMembers = sortMembersByBranch(members.filter((m) => (m.posisi || "RGE") === "RGE"));
+
+  // Item KPI ke-6: "Req Branding" -- permintaan cetak dari GTM Region/HOA sampai RGE serah-terima ke
+  // DSE/RSE/Depo (dibuktikan foto). SLA 5 hari, dihitung dari activity.date s/d timestamp foto
+  // terakhir (lihat reqBrandingSLA). Di-scope ke bulan yang sedang dilihat, sama seperti sisa
+  // halaman ini, berdasarkan tanggal permintaannya.
+  const reqBrandingRows = activities
+    .filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === "Req Branding" && String(a.date || "").startsWith(monthKey))
+    .map((a) => ({ activity: a, member: members.find((m) => m.id === a.assignedMemberId), sla: reqBrandingSLA(a) }))
+    .sort((a, b) => String(a.activity.date).localeCompare(String(b.activity.date)));
+  const reqBrandingLate = reqBrandingRows.filter((r) => r.sla.onTime === false).length;
+
+  const rows = rgeMembers.map((m) => {
+    const target = kpiTargets.find((t) => t.memberId === m.id && t.monthKey === monthKey) || {};
+    const achv = hitungAchievement(m.id, monthKey, rgeReports);
+    return {
+      member: m,
+      target,
+      ...achv,
+      pctSP: pct(achv.achvSP, Number(target.targetSP) || 0),
+      pctFWA: pct(achv.achvFWA, Number(target.targetFWA) || 0),
+      pctDesa: pct(achv.achvDesa, Number(target.targetDesa) || 0),
+      pctSchool: pct(achv.achvSchool, Number(target.targetSchool) || 0),
+    };
+  });
+
+  const totals = rows.reduce((acc, r) => ({
+    targetSP: acc.targetSP + (Number(r.target.targetSP) || 0), achvSP: acc.achvSP + r.achvSP,
+    targetFWA: acc.targetFWA + (Number(r.target.targetFWA) || 0), achvFWA: acc.achvFWA + r.achvFWA,
+    targetDesa: acc.targetDesa + (Number(r.target.targetDesa) || 0), achvDesa: acc.achvDesa + r.achvDesa,
+    targetSchool: acc.targetSchool + (Number(r.target.targetSchool) || 0), achvSchool: acc.achvSchool + r.achvSchool,
+    achvNotaLunas: acc.achvNotaLunas + r.achvNotaLunas, achvNotaTotal: acc.achvNotaTotal + r.achvNotaTotal,
+  }), { targetSP: 0, achvSP: 0, targetFWA: 0, achvFWA: 0, targetDesa: 0, achvDesa: 0, targetSchool: 0, achvSchool: 0, achvNotaLunas: 0, achvNotaTotal: 0 });
+
+  function exportExcel() {
+    const header = ["NO", "Nama RGE", "Branch", "POSM Achv (%)", "Target SP", "Achv SP", "%Achv SP", "Nota Lunas/Total", "Target FWA", "Achv FWA", "%Achv FWA", "Target Desa", "Achv Desa", "%Achv Desa", "Target School", "Achv School", "%Achv School"];
+    const body = rows.map((r, i) => [
+      i + 1, r.member.name || r.member.fullName, r.member.branch,
+      r.target.posmAchievementPercent || 0,
+      r.target.targetSP || 0, r.achvSP, `${r.pctSP}%`,
+      `${r.achvNotaLunas}/${r.achvNotaTotal}`,
+      r.target.targetFWA || 0, r.achvFWA, `${r.pctFWA}%`,
+      r.target.targetDesa || 0, r.achvDesa, `${r.pctDesa}%`,
+      r.target.targetSchool || 0, r.achvSchool, `${r.pctSchool}%`,
+    ]);
+    const totalRow = ["", "Total", "", "",
+      totals.targetSP, totals.achvSP, `${pct(totals.achvSP, totals.targetSP)}%`,
+      `${totals.achvNotaLunas}/${totals.achvNotaTotal}`,
+      totals.targetFWA, totals.achvFWA, `${pct(totals.achvFWA, totals.targetFWA)}%`,
+      totals.targetDesa, totals.achvDesa, `${pct(totals.achvDesa, totals.targetDesa)}%`,
+      totals.targetSchool, totals.achvSchool, `${pct(totals.achvSchool, totals.targetSchool)}%`,
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([header, ...body, totalRow]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Rekap KPI");
+    XLSX.writeFile(wb, `Rekap-KPI-RGE-${monthKey}.xlsx`);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={17} className="text-indigo-600" />
+          <h3 className="font-bold text-base text-slate-900">Rekap KPI RGE</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <IconBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><ChevronLeft size={16} /></IconBtn>
+          <span className="text-sm font-semibold text-slate-700 min-w-[120px] text-center">{BULAN[cursor.m]} {cursor.y}</span>
+          <IconBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><ChevronRight size={16} /></IconBtn>
+          <GhostBtn onClick={exportExcel}><Download size={14} /> Excel</GhostBtn>
+          <GhostBtn onClick={() => window.print()}><Download size={14} /> PDF (Print)</GhostBtn>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600">
+              <th className="border border-slate-200 px-2 py-1.5">NO</th>
+              <th className="border border-slate-200 px-2 py-1.5 text-left">Nama RGE</th>
+              <th className="border border-slate-200 px-2 py-1.5 text-left">Branch</th>
+              <th className="border border-slate-200 px-2 py-1.5">POSM Achv</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target SP (40%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" title="Cek manual: jumlah nota yang sudah ditandai Lunas vs total nota masuk bulan ini">Verifikasi Nota</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target FWA (25%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target Desa (10%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target School (10%)</th>
+              <th className="border border-slate-200 px-2 py-1.5"></th>
+            </tr>
+            <tr className="bg-slate-50 text-slate-500">
+              <th className="border border-slate-200" colSpan={4}></th>
+              {["Target", "Achv", "%"].map((h) => <th key={"sp" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              <th className="border border-slate-200 px-1.5 py-1">Lunas/Total</th>
+              {["Target", "Achv", "%"].map((h) => <th key={"fwa" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              {["Target", "Achv", "%"].map((h) => <th key={"desa" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              {["Target", "Achv", "%"].map((h) => <th key={"sch" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              <th className="border border-slate-200"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.member.id} className="hover:bg-slate-50">
+                <td className="border border-slate-200 text-center">{i + 1}</td>
+                <td className="border border-slate-200 px-2 py-1 font-medium text-slate-800">{r.member.name || r.member.fullName}</td>
+                <td className="border border-slate-200 px-2 py-1 text-slate-500">{r.member.branch}</td>
+                <td className="border border-slate-200 text-center">{r.target.posmAchievementPercent ? `${r.target.posmAchievementPercent}%` : "-"}</td>
+                <td className="border border-slate-200 text-center">{r.target.targetSP || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvSP}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctSP >= 100 ? "#059669" : "#0F172A" }}>{r.pctSP}%</td>
+                <td className="border border-slate-200 text-center text-slate-500" title="Jumlah nota Lunas / total nota masuk bulan ini">
+                  {r.achvNotaLunas}/{r.achvNotaTotal}
+                  {r.achvNotaTotal > 0 && r.achvNotaLunas < r.achvNotaTotal && <span className="text-amber-500 ml-0.5">⚠</span>}
+                </td>
+                <td className="border border-slate-200 text-center">{r.target.targetFWA || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvFWA}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctFWA >= 100 ? "#059669" : "#0F172A" }}>{r.pctFWA}%</td>
+                <td className="border border-slate-200 text-center">{r.target.targetDesa || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvDesa}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctDesa >= 100 ? "#059669" : "#0F172A" }}>{r.pctDesa}%</td>
+                <td className="border border-slate-200 text-center">{r.target.targetSchool || 0}</td>
+                <td className="border border-slate-200 text-center">{r.achvSchool}</td>
+                <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctSchool >= 100 ? "#059669" : "#0F172A" }}>{r.pctSchool}%</td>
+                <td className="border border-slate-200 text-center">
+                  <button onClick={() => setEditMember(r.member)} className="text-indigo-500 hover:text-indigo-700"><Pencil size={13} /></button>
+                </td>
+              </tr>
+            ))}
+            <tr className="bg-slate-100 font-bold text-slate-800">
+              <td className="border border-slate-200 text-center" colSpan={4}>Total</td>
+              <td className="border border-slate-200 text-center">{totals.targetSP}</td>
+              <td className="border border-slate-200 text-center">{totals.achvSP}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvSP, totals.targetSP)}%</td>
+              <td className="border border-slate-200 text-center">{totals.achvNotaLunas}/{totals.achvNotaTotal}</td>
+              <td className="border border-slate-200 text-center">{totals.targetFWA}</td>
+              <td className="border border-slate-200 text-center">{totals.achvFWA}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvFWA, totals.targetFWA)}%</td>
+              <td className="border border-slate-200 text-center">{totals.targetDesa}</td>
+              <td className="border border-slate-200 text-center">{totals.achvDesa}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvDesa, totals.targetDesa)}%</td>
+              <td className="border border-slate-200 text-center">{totals.targetSchool}</td>
+              <td className="border border-slate-200 text-center">{totals.achvSchool}</td>
+              <td className="border border-slate-200 text-center">{pct(totals.achvSchool, totals.targetSchool)}%</td>
+              <td className="border border-slate-200"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {rgeMembers.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada anggota dengan posisi RGE.</p>}
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mt-5">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2"><Package size={16} className="text-amber-600" /><h3 className="font-bold text-slate-900">Req Branding — SLA Serah Terima</h3></div>
           {reqBrandingLate > 0 && <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-full">{reqBrandingLate} terlambat</span>}
@@ -3226,6 +3257,16 @@ function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
           </div>
         )}
       </div>
+
+      {editMember && (
+        <TargetKPIModal
+          member={editMember}
+          monthKey={monthKey}
+          target={kpiTargets.find((t) => t.memberId === editMember.id && t.monthKey === monthKey)}
+          onClose={() => setEditMember(null)}
+          onSave={(patch) => onSaveTarget(editMember.id, monthKey, patch)}
+        />
+      )}
     </div>
   );
 }
