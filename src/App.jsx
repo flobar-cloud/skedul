@@ -320,7 +320,7 @@ function reportInfoForActivity(activity, member, rgeReports = []) {
   const photo = latest?.FotoURL || latest?.fotoUrl || latest?.photoUrl || latest?.imageUrl;
   const hasil = activity?.hasil || {};
   const hasResult = Object.values(hasil).some(v => Number(v) > 0 || (typeof v === "string" && v.trim()));
-  return { received: Boolean(latest), photo: Boolean(photo), latest, rows, hasResult, linkedByActivityId: directRows.length > 0 };
+  return { received: Boolean(latest), photo: Boolean(photo), latest, hasResult, linkedByActivityId: directRows.length > 0 };
 }
 
 function progressOf(status) {
@@ -787,7 +787,19 @@ export default function PapanKegiatan() {
     );
     const unsubReports = onSnapshot(
       collection(db, "rgeReports"),
-      (snap) => setRgeReports(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
+      (snap) => {
+        // Dedupe per MessageId: dokumen lama (ID acak dari n8n) dan dokumen hasil sinkron Sheet
+        // (ID = MessageId) bisa berisi laporan yang sama. Yang dipertahankan = yang sudah "Lunas".
+        const byMsg = new Map(); const noMsg = [];
+        snap.docs.forEach((d) => {
+          const r = { ...d.data(), id: d.id };
+          const mid = String(r.MessageId || "").trim();
+          if (!mid) { noMsg.push(r); return; }
+          const prev = byMsg.get(mid);
+          if (!prev || (r.StatusLunas === true && prev.StatusLunas !== true)) byMsg.set(mid, r);
+        });
+        setRgeReports([...byMsg.values(), ...noMsg]);
+      },
       (err) => console.error("Gagal memuat rgeReports:", err)
     );
     const unsubTargets = onSnapshot(
@@ -1415,31 +1427,7 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
     <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 p-4">
       <div className="flex items-center justify-between mb-3"><div><div className="text-xs font-black text-slate-900">Execution → Report → Achievement</div><div className="text-[11px] text-slate-500">Status kegiatan dan laporan WA dalam satu alur.</div></div><span className={`text-[10px] font-extrabold px-2 py-1 rounded-full ${reportInfo.received ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{reportInfo.received ? "REPORT RECEIVED" : "REPORT PENDING"}</span></div>
       <div className="flex items-center gap-1">{reportSteps.map(([label,done],i)=><Fragment key={label}><div className="flex-1 min-w-0"><div className={`h-2 rounded-full ${done ? "bg-indigo-500" : "bg-slate-200"}`} /><div className={`mt-1 text-[9px] font-bold truncate ${done ? "text-slate-700" : "text-slate-400"}`}>{label}</div></div>{i<reportSteps.length-1&&<ChevronRight size={12} className="text-slate-300 shrink-0"/>}</Fragment>)}</div>
-      {reportInfo.latest && <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span>WA report: <b className="text-slate-700">{String(reportInfo.latest.Timestamp || reportInfo.latest.receivedAt || "").slice(0,16).replace("T"," ")}</b></span><span>{(reportInfo.latest.rawCaption || reportInfo.latest.RawCaption) ? `“${String((reportInfo.latest.rawCaption || reportInfo.latest.RawCaption)).slice(0,80)}${String((reportInfo.latest.rawCaption || reportInfo.latest.RawCaption)).length>80?"…":""}”` : "Laporan diterima dari workflow n8n."}</span></div>}
-      {reportInfo.rows && reportInfo.rows.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col gap-2">
-          <div className="text-[11px] font-bold text-slate-700">Laporan WA terhubung ({reportInfo.rows.length})</div>
-          {reportInfo.rows.slice(0, 5).map((r) => {
-            const h = hasilFromReport(r);
-            const url = r.FotoURL || r.fotoUrl;
-            const detail = reportDetailText(r);
-            const cat = String(r.Kategori || r.category || "").toLowerCase();
-            const sp = [h.spIM3 ? `SP IM3 ${h.spIM3}` : "", h.sp3ID ? `SP 3ID ${h.sp3ID}` : "", h.hifi ? `FWA ${h.hifi}` : "", h.poster ? `Poster ${h.poster}` : "", h.spanduk ? `Spanduk ${h.spanduk}` : "", h.shopblind ? `Shopblind ${h.shopblind}` : "", h.rontek ? `Rontek ${h.rontek}` : ""].filter(Boolean).join(" · ");
-            return (
-              <div key={r.id} className="flex gap-2 items-center rounded-lg border border-slate-100 p-2">
-                {url
-                  ? <a href={url} target="_blank" rel="noreferrer"><img src={driveImageUrl(url, 200)} referrerPolicy="no-referrer" alt="" className="w-14 h-14 rounded object-cover bg-slate-100" /></a>
-                  : <div className="w-14 h-14 rounded bg-slate-100 text-[9px] text-slate-400 flex items-center justify-center text-center">Tanpa foto</div>}
-                <div className="min-w-0 text-[11px]">
-                  <div className="font-bold text-slate-700 truncate">{KATEGORI_LABEL[cat] || cat}{detail ? ` · ${detail}` : ""}</div>
-                  <div className="text-slate-500">{sp || "-"}</div>
-                  <div className="text-slate-400">{String(r.Timestamp || r.receivedAt || "").slice(0, 16).replace("T", " ")} · {r.NamaRGE || r.Sender}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {reportInfo.latest && <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span>WA report: <b className="text-slate-700">{String(reportInfo.latest.Timestamp || reportInfo.latest.receivedAt || "").slice(0,16).replace("T"," ")}</b></span><span>{reportInfo.latest.rawCaption ? `“${String(reportInfo.latest.rawCaption).slice(0,80)}${String(reportInfo.latest.rawCaption).length>80?"…":""}”` : "Laporan diterima dari workflow n8n."}</span></div>}
     </div>
   );
 
@@ -2248,19 +2236,13 @@ function GaleriFoto({ activities, members, cursor, onOpen, branchFilter = null, 
 // dikelompokkan per branch (tab), sumber datanya koleksi Firestore "rgeReports" yang ditulis n8n. ----------
 const KATEGORI_LABEL = {
   posm: "Branding", event: "Event", dtu: "DTU", desa: "Desa",
-  school: "School", fwa: "FWA", nota: "Nota", stok: "Stok",
+  school: "School", fwa: "FWA", nota: "Nota",
 };
 // Field di sini PERSIS mengikuti header yang ditulis n8n ke Sheets/Firestore (PascalCase):
 // Kategori, NamaEvent, NamaLokasi, NamaDesa, SiteId, NamaSekolah, SP_IM3, SP_3ID, FWA, Msisdn,
 // Imei, Nominal, PosmItems (disimpan sebagai STRING JSON, bukan object -- perlu JSON.parse).
 function ringkasanLaporan(r) {
   const cat = r.Kategori || r.category;
-  if (cat === "stok") {
-    let items = {};
-    try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || {}); } catch { items = {}; }
-    const NAMA = { posterSpIM3: "Poster SP IM3", posterSpTri: "Poster SP Tri", posterRebuyIM3: "Poster Rebuy IM3", posterRebuyTri: "Poster Rebuy Tri", flagchainIM3: "Flagchain IM3", flagchainTri: "Flagchain Tri" };
-    return [r.NamaLokasi || r.namaLokasi, Object.entries(items).map(([k, v]) => `${NAMA[k] || k} ${v}`).join(", ")].filter(Boolean).join(" · ");
-  }
   if (cat === "posm") {
     let items = {};
     try { items = typeof r.PosmItems === "string" ? JSON.parse(r.PosmItems || "{}") : (r.PosmItems || r.posmItems || {}); }
@@ -2289,9 +2271,9 @@ function ringkasanLaporan(r) {
 // kalau tidak ada baru dijumlahkan dari laporan WA-nya.
 const HASIL_FIELDS = [
   ["spIM3", "SP IM3"], ["sp3ID", "SP 3ID"], ["hifi", "Hifi/FWA"], ["poster", "Poster"],
-  ["shopblind", "Shopblind"], ["vinil", "Vinil"], ["spanduk", "Spanduk"], ["rontek", "Rontek"], ["outlet", "Outlet"], ["wall", "Wall"],
+  ["shopblind", "Shopblind"], ["vinil", "Vinil"], ["spanduk", "Spanduk"], ["rontek", "Rontek"],
 ];
-const emptyHasil = () => ({ spIM3: 0, sp3ID: 0, hifi: 0, poster: 0, shopblind: 0, vinil: 0, spanduk: 0, rontek: 0, outlet: 0, wall: 0 });
+const emptyHasil = () => ({ spIM3: 0, sp3ID: 0, hifi: 0, poster: 0, shopblind: 0, vinil: 0, spanduk: 0, rontek: 0 });
 function addHasil(target, src) {
   HASIL_FIELDS.forEach(([k]) => { target[k] += Number(src?.[k]) || 0; });
   return target;
@@ -2300,10 +2282,20 @@ function hasilFromReport(r) {
   let items = r.PosmItems ?? r.posmItems ?? {};
   if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
   const g = (k) => Number(items?.[k]) || 0;
+  // Laporan kategori "fwa" (keyword fwa di grup WA) hanya membawa msisdn+imei, TANPA angka FWA
+  // eksplisit -- 1 laporan msisdn+imei lengkap = 1 unit FWA terpasang/tercapai. Laporan kategori lain
+  // (event/dtu/desa/school) kadang menyertakan angka FWA eksplisit di captionnya (field FWA numerik).
+  // Keduanya digabung di sini supaya "Total Hifi/FWA" (dan Achv FWA di KPI) menghitung SEMUA sinyal
+  // pencapaian FWA yang dilaporkan RGE, dari jenis laporan manapun.
+  const cat = String(r.Kategori ?? r.category ?? "").toLowerCase();
+  const msisdn = r.Msisdn ?? r.msisdn ?? "";
+  const imei = r.Imei ?? r.imei ?? "";
+  const fwaInstallConfirmed = cat === "fwa" && String(msisdn).trim() && String(imei).trim() ? 1 : 0;
   return {
     spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0,
-    hifi: Number(r.FWA ?? r.fwa) || 0, poster: g("poster"), shopblind: g("shopblind"), vinil: 0,
-    spanduk: g("spanduk"), rontek: g("rontek") + g("rountag") + g("roundtag"), outlet: g("outlet"), wall: g("wall"),
+    hifi: (Number(r.FWA ?? r.fwa) || 0) + fwaInstallConfirmed,
+    poster: g("poster"), shopblind: g("shopblind"), vinil: 0,
+    spanduk: g("spanduk"), rontek: g("rontek") + g("rountag") + g("roundtag"),
   };
 }
 function reportDateLocal(r) {
@@ -2314,20 +2306,6 @@ function reportDateLocal(r) {
 }
 function reportDetailText(r) {
   return r.NamaEvent || r.namaEvent || r.NamaLokasi || r.namaLokasi || r.NamaDesa || r.namaDesa || r.NamaSekolah || r.namaSekolah || "";
-}
-
-// Cari anggota pemilik sebuah laporan WA. Urutan: nomor pengirim -> memberId -> NAMA RGE yang tersimpan di laporan.
-// Fallback nama penting untuk laporan hasil backfill dari Google Sheet, di mana nomor panjang bisa terpotong
-// (notasi ilmiah) tapi kolom NamaRGE-nya tetap benar.
-function resolveMemberForReport(r, members) {
-  const key = phoneKey(r.Sender || r.sender || r.phone);
-  let m = key ? members.find((x) => phoneKey(x.phone || x.id) === key) : null;
-  if (!m && (r.memberId || r.MemberId)) m = members.find((x) => x.id === (r.memberId || r.MemberId));
-  if (!m) {
-    const nm = String(r.NamaRGE || "").trim().toLowerCase();
-    if (nm && !/^\d+$/.test(nm)) m = members.find((x) => String(x.name || "").trim().toLowerCase() === nm);
-  }
-  return m || null;
 }
 
 // Daftar foto galeri (dipakai tampilan web DAN PDF supaya isinya selalu sama).
@@ -2342,7 +2320,8 @@ function collectGaleriPhotos({ activities, members, rgeReports = [], cursor, bra
     const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
     const date = act?.date || reportDateLocal(r);
     if (!date || !date.startsWith(monthPrefix)) return;
-    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || resolveMemberForReport(r, members);
+    const senderKey = phoneKey(r.Sender || r.sender || r.phone);
+    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || members.find((m) => phoneKey(m.phone || m.id) === senderKey);
     const branch = mem?.branch || r.Branch || r.branch;
     const jenis = act ? normalizeJenisKegiatan(act.jenisKegiatan) : KATEGORI_KE_JENIS[cat];
     if (branchFilter && branch !== branchFilter) return;
@@ -2394,11 +2373,7 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
     const nFotoWeb = (a.photos || []).length;
     const bukti = a.status === "selesai" || adaHasilWeb || nFotoWeb > 0 || reports.length > 0;
     if (!bukti) return;
-    // Gabung per field: nilai dari input web dipakai kalau > 0, kalau 0 diambil dari laporan WA yang terhubung.
-    // (Dulu: kalau hasil web punya satu angka saja, angka SP dari laporan WA ikut diabaikan -> jadi 0.)
-    const hasilLink = reports.reduce((acc, r) => addHasil(acc, hasilFromReport(r)), emptyHasil());
-    const hasil = emptyHasil();
-    HASIL_FIELDS.forEach(([k]) => { hasil[k] = hasilWeb[k] > 0 ? hasilWeb[k] : hasilLink[k]; });
+    const hasil = adaHasilWeb ? hasilWeb : reports.reduce((acc, r) => addHasil(acc, hasilFromReport(r)), emptyHasil());
     const links = reports.map((r) => r.FotoURL || r.fotoUrl).filter(Boolean);
     entries.push({
       tanggal: a.date, memberId: a.assignedMemberId, rge: mem?.name || "(tanpa PIC)", branch: mem?.branch || "",
@@ -2410,10 +2385,8 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
   standalone.forEach((r) => {
     const date = reportDateLocal(r);
     if (!date || !date.startsWith(monthPrefix)) return;
-    const mem = resolveMemberForReport(r, members);
+    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender || r.phone));
     const branch = mem?.branch || r.Branch || r.branch || "";
-    // Pengirim yang tidak dikenali (tanpa nama RGE / "TIDAK TERDAFTAR") diabaikan dari rekap.
-    if (!mem && (!branch || String(branch).toUpperCase() === "TIDAK TERDAFTAR")) return;
     if (branchFilter && branch !== branchFilter) return;
     const url = r.FotoURL || r.fotoUrl;
     entries.push({
@@ -2427,14 +2400,13 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
   // Baris rekap: semua RGE (walau 0 laporan, supaya kelihatan siapa yang belum lapor) + pengirim tak dikenal.
   const rgeList = sortMembersByBranch(members.filter((m) => (m.posisi || "RGE") === "RGE" && (!branchFilter || m.branch === branchFilter)));
   const rowsMap = new Map();
-  const newRow = (key, name, branch, jadwal) => ({ key, name, branch, jadwal, terlaksana: 0, dariJadwal: 0, perJenis: {}, total: emptyHasil(), entries: [] });
+  const newRow = (key, name, branch, jadwal) => ({ key, name, branch, jadwal, terlaksana: 0, dariJadwal: 0, perJenis: {}, total: emptyHasil() });
   rgeList.forEach((m) => rowsMap.set(m.id, newRow(m.id, m.name, m.branch || "", jadwalByMember[m.id] || 0)));
   entries.forEach((e) => {
     const key = e.memberId && rowsMap.has(e.memberId) ? e.memberId : `x:${e.rge}`;
     if (!rowsMap.has(key)) rowsMap.set(key, newRow(key, e.rge, e.branch, 0));
     const row = rowsMap.get(key);
     row.terlaksana += 1;
-    row.entries.push(e);
     if (e.fromJadwal) row.dariJadwal += 1; // dipakai untuk % realisasi (laporan WA tanpa jadwal tidak menaikkan persentase)
     const pj = (row.perJenis[e.jenis] = row.perJenis[e.jenis] || { n: 0, hasil: emptyHasil() });
     pj.n += 1; addHasil(pj.hasil, e.hasil); addHasil(row.total, e.hasil);
@@ -2624,7 +2596,7 @@ function GaleriPerBranch({ members, rgeReports }) {
   const resolveBranch = (r) => {
     let b = String(r.Branch || r.branch || "").trim();
     if (!b || b.toUpperCase() === "TIDAK TERDAFTAR") {
-      const mem = resolveMemberForReport(r, members);
+      const mem = members.find((x) => phoneKey(x.phone || x.id) === phoneKey(r.Sender || r.sender || r.phone));
       b = String(mem?.branch || "").trim();
     }
     if (!b) return NO_BRANCH;
@@ -2743,43 +2715,69 @@ function GaleriPerBranch({ members, rgeReports }) {
 function monthKeyOf(cursor) { return `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`; }
 function pct(achv, target) { return target > 0 ? Math.round((achv / target) * 100) : 0; }
 
-function hitungAchievement(memberId, monthKey, rgeReports) {
+// Achv KPI diambil dari SATU sumber yang sama dengan Excel export (buildRekapBulanan), supaya
+// angka di tab "Pencapaian KPI" selalu sinkron dengan yang ada di export Excel -- yaitu gabungan
+// laporan yang masuk lewat grup WA (rgeReports) MAUPUN hasil kegiatan yang diisi manual lewat web
+// (activities[].hasil), bukan cuma dari WA seperti sebelumnya. Achv tetap terisi apa adanya walau
+// target KPI bulan itu belum diisi -- hanya %Achv yang jadi 0 kalau target 0 (lihat fungsi pct()).
+function achvFromRekapRow(row) {
+  const achvSPIM3 = row?.total?.spIM3 || 0;
+  const achvSP3ID = row?.total?.sp3ID || 0;
+  return {
+    achvSPIM3, achvSP3ID, achvSP: achvSPIM3 + achvSP3ID,
+    // Achv FWA/Hifi = total semua sinyal FWA yang dilaporkan: angka FWA eksplisit di laporan
+    // event/dtu/desa/school, DITAMBAH laporan kategori "fwa" (msisdn+imei lengkap = 1 unit
+    // terpasang) -- lihat hasilFromReport(). Aktivitas web dgn jenis "FWA" juga ikut lewat field
+    // hasil.hifi yang diisi manual.
+    achvFWA: row?.total?.hifi || 0,
+    // Attack Desa / Attack School: Achv = JUMLAH kegiatan/laporan jenis itu (bukan angka SP-nya),
+    // sesuai cara kerja lama -- setiap laporan/aktivitas "Attack Desa" atau "Attack School" yang
+    // tercatat bulan ini (dari WA ataupun web) menambah 1 ke Achv.
+    achvDesa: row?.perJenis?.["Attack Desa"]?.n || 0,
+    achvSchool: row?.perJenis?.["Attack School"]?.n || 0,
+  };
+}
+
+// Verifikasi Nota (Lunas/Total) tetap dihitung langsung dari rgeReports per bulan -- nota BUKAN
+// jenis kegiatan (dikecualikan dari buildRekapBulanan), murni dipakai untuk cross-check manual
+// terhadap klaim penjualan SP, jadi dihitung terpisah di sini.
+function notaStatsForMember(memberId, monthKey, rgeReports) {
   const memberDigits = digitsOnly(memberId);
-  const rows = rgeReports.filter((r) => {
+  let achvNotaLunas = 0, achvNotaTotal = 0;
+  rgeReports.forEach((r) => {
+    if (String(r.Kategori || r.category || "").toLowerCase() !== "nota") return;
     const senderDigits = reportSenderDigits(r);
     const ts = String(r.Timestamp || r.receivedAt || "");
-    return senderDigits && memberDigits && senderDigits === memberDigits && ts.slice(0, 7) === monthKey;
+    if (!(senderDigits && memberDigits && senderDigits === memberDigits && ts.slice(0, 7) === monthKey)) return;
+    achvNotaTotal += 1;
+    if (r.StatusLunas === true || r.statusLunas === true) achvNotaLunas += 1;
   });
-  let achvSP = 0, achvFWA = 0, achvDesa = 0, achvSchool = 0, achvNotaLunas = 0, achvNotaTotal = 0;
-  rows.forEach((r) => {
-    const cat = r.Kategori || r.category;
-    const spIM3 = Number(r.SP_IM3 ?? r.spIM3 ?? 0);
-    const sp3ID = Number(r.SP_3ID ?? r.sp3ID ?? 0);
-    // SP (im3+3id) tetap ditotal dari SEMUA jenis kegiatan yang ada penjualannya.
-    if (["event", "dtu", "desa", "school", "nota"].includes(cat)) achvSP += spIM3 + sp3ID;
-    if (["event", "dtu", "desa", "school"].includes(cat)) {
-      if (cat === "desa") achvDesa += 1;
-      if (cat === "school") achvSchool += 1;
-    }
-    // FWA pencapaian HANYA dihitung dari laporan keyword "fwa" yang msisdn & imei-nya terisi
-    // (bukan dijumlah dari field fwa di event/dtu/desa/school lagi).
-    const msisdn = r.Msisdn ?? r.msisdn ?? "";
-    const imei = r.Imei ?? r.imei ?? "";
-    if (cat === "fwa" && String(msisdn).trim() && String(imei).trim()) achvFWA += 1;
-    // Nota: dipakai untuk VERIFIKASI manual (bukan pengurang Achv SP) -- bandingkan jumlah nota
-    // yang sudah ditandai Lunas dengan Achv SP di atas.
-    if (cat === "nota") {
-      achvNotaTotal += 1;
-      if (r.StatusLunas === true || r.statusLunas === true) achvNotaLunas += 1;
-    }
-  });
-  return { achvSP, achvFWA, achvDesa, achvSchool, achvNotaLunas, achvNotaTotal };
+  return { achvNotaLunas, achvNotaTotal };
+}
+
+// Target SP sekarang dipecah jadi IM3 + 3ID (lihat TargetKPIModal). Helper ini tetap mendukung
+// target lama yang masih berupa satu angka gabungan "targetSP" (diisi sebelum field ini dipecah),
+// supaya data target bulan-bulan lalu tidak hilang/kelihatan 0.
+function targetSPTotalOf(target) {
+  const im3 = Number(target?.targetSPIM3) || 0;
+  const tid = Number(target?.targetSP3ID) || 0;
+  if (im3 || tid) return im3 + tid;
+  return Number(target?.targetSP) || 0;
+}
+
+// Ubah "2026-10" jadi cursor {y,m} yang dipakai buildRekapBulanan/exportRekapExcel.
+function cursorFromMonthKey(mKey) {
+  const [y, m] = String(mKey).split("-").map(Number);
+  return { y, m: (m || 1) - 1 };
 }
 
 function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
   const [form, setForm] = useState({
     posmAchievementPercent: target?.posmAchievementPercent ?? "",
-    targetSP: target?.targetSP ?? "",
+    // Kalau target lama cuma punya "targetSP" gabungan (sebelum field ini dipecah), isi salah satu
+    // kolom (IM3) dengan nilai lama itu sebagai titik awal, supaya tidak tiba-tiba terlihat kosong.
+    targetSPIM3: target?.targetSPIM3 ?? (!target?.targetSP3ID && target?.targetSP ? target.targetSP : ""),
+    targetSP3ID: target?.targetSP3ID ?? "",
     targetFWA: target?.targetFWA ?? "",
     targetDesa: target?.targetDesa ?? "",
     targetSchool: target?.targetSchool ?? "",
@@ -2793,10 +2791,17 @@ function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
           <input type="number" style={inputStyle} value={form.posmAchievementPercent}
             onChange={(e) => setForm((f) => ({ ...f, posmAchievementPercent: e.target.value }))} placeholder="Cth: 80" />
         </Field>
-        <Field label="Target SP (im3 + 3id)">
-          <input type="number" style={inputStyle} value={form.targetSP}
-            onChange={(e) => setForm((f) => ({ ...f, targetSP: e.target.value }))} />
-        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Target SP IM3">
+            <input type="number" style={inputStyle} value={form.targetSPIM3}
+              onChange={(e) => setForm((f) => ({ ...f, targetSPIM3: e.target.value }))} />
+          </Field>
+          <Field label="Target SP 3ID">
+            <input type="number" style={inputStyle} value={form.targetSP3ID}
+              onChange={(e) => setForm((f) => ({ ...f, targetSP3ID: e.target.value }))} />
+          </Field>
+        </div>
+        <p className="text-[10px] text-slate-400 -mt-2">Achv SP di tabel akan menjumlahkan total SP IM3 + SP 3ID yang tercapai terhadap total target di atas.</p>
         <Field label="Target FWA">
           <input type="number" style={inputStyle} value={form.targetFWA}
             onChange={(e) => setForm((f) => ({ ...f, targetFWA: e.target.value }))} />
@@ -2809,9 +2814,11 @@ function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
           <input type="number" style={inputStyle} value={form.targetSchool}
             onChange={(e) => setForm((f) => ({ ...f, targetSchool: e.target.value }))} />
         </Field>
-        <PrimaryBtn onClick={() => { onSave({
+        <PrimaryBtn onClick={() => { const spIM3 = Number(form.targetSPIM3) || 0; const sp3ID = Number(form.targetSP3ID) || 0; onSave({
           posmAchievementPercent: Number(form.posmAchievementPercent) || 0,
-          targetSP: Number(form.targetSP) || 0,
+          targetSPIM3: spIM3,
+          targetSP3ID: sp3ID,
+          targetSP: spIM3 + sp3ID, // tetap disimpan juga (kompatibilitas data/export lama)
           targetFWA: Number(form.targetFWA) || 0,
           targetDesa: Number(form.targetDesa) || 0,
           targetSchool: Number(form.targetSchool) || 0,
@@ -2823,435 +2830,7 @@ function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
   );
 }
 
-// ---------- Pencapaian KPI = "Quick Count" semua pencatatan kegiatan (web + grup WA) ----------
-// Menggantikan halaman target-vs-pencapaian lama (komponen lama disimpan di bawah sebagai
-// RekapKPITargetLama, tidak dipakai). Angka berasal dari buildRekapBulanan(), jadi sama persis dengan
-// export "Rekap Excel" di menu Laporan & Rekap.
-const KPI_STOK_ITEMS = [
-  ["posterSpIM3", "Poster SP IM3"], ["posterSpTri", "Poster SP Tri"], ["posterRebuyIM3", "Poster Rebuy IM3"],
-  ["posterRebuyTri", "Poster Rebuy Tri"], ["flagchainIM3", "Flagchain IM3"], ["flagchainTri", "Flagchain Tri"],
-];
-const KPI_POSM_ITEMS = [
-  ["poster", "Poster"], ["spanduk", "Spanduk"], ["rontek", "Rountag"], ["shopblind", "Shopblind"], ["outlet", "Outlet"], ["wall", "Wall"],
-];
-// Stok terbaru per MC: laporan "stok" yang paling baru untuk nama MC yang sama menggantikan yang lama.
-function latestStokPerMC(rgeReports, members, branchFilter = null) {
-  const latest = new Map();
-  rgeReports.forEach((r) => {
-    if (String(r.Kategori || r.category || "").toLowerCase() !== "stok") return;
-    const mc = String(r.NamaLokasi || r.namaLokasi || "").trim();
-    if (!mc) return;
-    const key = mc.toLowerCase().replace(/\s+/g, " ");
-    const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
-    const prev = latest.get(key);
-    if (!prev || ts > prev.ts) latest.set(key, { r, ts, mc });
-  });
-  const rows = [...latest.values()].map(({ r, ts, mc }) => {
-    let items = r.PosmItems ?? r.posmItems ?? {};
-    if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
-    const mem = resolveMemberForReport(r, members);
-    const branch = mem?.branch || (String(r.Branch || "") === "TIDAK TERDAFTAR" ? "" : r.Branch) || "";
-    return { mc, items: items || {}, rge: mem?.name || r.NamaRGE || r.Sender || "", branch, tanggal: reportDateLocal(r) || ts.slice(0, 10), foto: r.FotoURL || r.fotoUrl || "" };
-  }).filter((x) => !branchFilter || x.branch === branchFilter);
-  return rows.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || a.branch.localeCompare(b.branch) || a.mc.localeCompare(b.mc));
-}
-
-function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter }) {
-  const { rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
-  const g = (row, j) => row.perJenis[j] || { n: 0, hasil: emptyHasil() };
-  const quick = rows.map((r) => {
-    const JENIS_BLOK = ["DTU", "Attack Desa", "Attack School", "Event"];
-    const blok = JENIS_BLOK.map((j) => {
-      const x = g(r, j);
-      return { n: x.n, im3: x.hasil.spIM3, id3: x.hasil.sp3ID, total: x.hasil.spIM3 + x.hasil.sp3ID };
-    });
-    // TOTAL SP = IM3 + 3ID dari SEMUA kegiatan selain FWA. Selain 4 blok di atas, jenis lain (mis. Branding) hanya
-    // ikut kalau memang punya angka IM3/3ID; FWA tidak pernah dihitung.
-    const lain = Object.entries(r.perJenis).filter(([j]) => !JENIS_BLOK.includes(j) && j !== "FWA").reduce((a, [, v]) => ({ im3: a.im3 + v.hasil.spIM3, id3: a.id3 + v.hasil.sp3ID }), { im3: 0, id3: 0 });
-    const tAct = blok.reduce((s, b) => s + b.n, 0);
-    const tIM3 = blok.reduce((s, b) => s + b.im3, 0) + lain.im3, t3ID = blok.reduce((s, b) => s + b.id3, 0) + lain.id3;
-    return { key: r.key, name: r.name, branch: r.branch, blok, tAct, tIM3, t3ID, total: tIM3 + t3ID, entries: r.entries };
-  });
-  const posm = rows.map((r) => {
-    const x = g(r, "Branding");
-    return { name: r.name, branch: r.branch, n: x.n, items: x.hasil };
-  });
-  return { quick, posm, stok: latestStokPerMC(rgeReports, members, branchFilter) };
-}
-
-// 20 angka per baris: [DTU Act,IM3,3ID,Total] [Desa ...] [School ...] [Event ...] [Total Act,IM3,3ID,TOTAL SP]
-const kpiCells = (r) => [...r.blok.flatMap((b) => [b.n, b.im3, b.id3, b.total]), r.tAct, r.tIM3, r.t3ID, r.total];
-// Kelompokkan per branch (urut sesuai urutan wilayah), tiap kelompok punya baris subtotal.
-function kpiGroupByBranch(quick) {
-  const groups = []; const gm = new Map();
-  quick.forEach((r) => {
-    const b = r.branch || "Tanpa Branch";
-    if (!gm.has(b)) { const grp = { branch: b, rows: [] }; gm.set(b, grp); groups.push(grp); }
-    gm.get(b).rows.push(r);
-  });
-  groups.sort((x, y) => branchRank(x.branch === "Tanpa Branch" ? "" : x.branch) - branchRank(y.branch === "Tanpa Branch" ? "" : y.branch) || x.branch.localeCompare(y.branch));
-  groups.forEach((grp) => { grp.sum = Array(20).fill(0); grp.rows.forEach((r) => kpiCells(r).forEach((v, i) => { grp.sum[i] += v; })); });
-  return groups;
-}
-
-function exportKpiQuickCountExcel(data, cursor, branchFilter) {
-  const monthKey = monthKeyOf(cursor);
-  const h1 = ["Nama RGE", ...["DTU", "Desa", "School", "Event"].flatMap((l) => [`${l} Activity`, `${l} IM3`, `${l} 3ID`, `${l} Total`]), "Total Activity", "Total IM3", "Total 3ID", "TOTAL SP"];
-  const groups = kpiGroupByBranch(data.quick);
-  const body1 = [];
-  groups.forEach((grp) => { body1.push([grp.branch, ...grp.sum]); grp.rows.forEach((r) => body1.push(["    " + r.name, ...kpiCells(r)])); });
-  const grand = Array(20).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
-  const ws1 = XLSX.utils.aoa_to_sheet([h1, ...body1, ["TOTAL", ...grand]]);
-  ws1["!cols"] = h1.map((h, i) => ({ wch: i === 0 ? 30 : 12 }));
-  const h2 = ["Branch", "RGE", "Jml Laporan", ...KPI_POSM_ITEMS.map(([, l]) => l), "Vinil"];
-  const body2 = data.posm.map((r) => [r.branch, r.name, r.n, ...KPI_POSM_ITEMS.map(([k]) => r.items[k] || 0), r.items.vinil || 0]);
-  const tot2 = (i) => body2.reduce((s, row) => s + (Number(row[i]) || 0), 0);
-  const ws2 = XLSX.utils.aoa_to_sheet([h2, ...body2, ["TOTAL", "", ...h2.slice(2).map((_, i) => tot2(i + 2))]]);
-  ws2["!cols"] = h2.map((h, i) => ({ wch: i === 0 ? 16 : i === 1 ? 26 : 12 }));
-  const h3 = ["Nama MC", "Branch", "RGE Pelapor", "Update Terakhir", ...KPI_STOK_ITEMS.map(([, l]) => l)];
-  const body3 = data.stok.map((r) => [r.mc, r.branch, r.rge, r.tanggal, ...KPI_STOK_ITEMS.map(([k]) => (r.items[k] === undefined ? "" : r.items[k]))]);
-  const ws3 = XLSX.utils.aoa_to_sheet([h3, ...body3]);
-  ws3["!cols"] = h3.map((h, i) => ({ wch: i === 0 ? 24 : i === 2 ? 24 : 15 }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws1, "Quick Count SP");
-  XLSX.utils.book_append_sheet(wb, ws2, "Branding-POSM");
-  XLSX.utils.book_append_sheet(wb, ws3, "Stok MC");
-  XLSX.writeFile(wb, `Quick-Count-KPI-${monthKey}${branchFilter ? "-" + branchFilter.replace(/\s+/g, "") : ""}.xlsx`);
-}
-
-// ---------- Cek sinkron Google Sheet <-> data web ----------
-// Parser CSV sederhana (otomatis mengenali pemisah ; , atau tab; mendukung teks bertanda kutip & baris baru).
-function parseDelimitedText(text) {
-  const clean = String(text || "").replace(/^\uFEFF/, "");
-  const first = clean.split(/\r?\n/, 1)[0] || "";
-  const delim = [";", "\t", ","].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
-  const rows = []; let row = [], cur = "", inQ = false;
-  for (let i = 0; i < clean.length; i++) {
-    const c = clean[i];
-    if (inQ) { if (c === '"') { if (clean[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
-    else if (c === '"') inQ = true;
-    else if (c === delim) { row.push(cur); cur = ""; }
-    else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
-    else if (c !== "\r") cur += c;
-  }
-  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
-  if (!rows.length) return [];
-  const header = rows[0].map((h) => String(h).trim());
-  return rows.slice(1).filter((r) => r.some((x) => x !== "")).map((r) => Object.fromEntries(header.map((h, i) => [h, r[i] ?? ""])));
-}
-// Bandingkan baris Sheet (hasil export) dengan laporan WA yang ada di web, dicocokkan lewat MessageId.
-function bandingkanSheetDenganWeb(sheetRows, rgeReports, abaikanTidakTerdaftar = true) {
-  const webMap = new Map();
-  rgeReports.forEach((r) => { const id = String(r.MessageId || "").trim(); if (id) webMap.set(id, r); });
-  const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
-  const out = { totalSheet: 0, sama: 0, diabaikan: 0, hilang: [], beda: [], hanyaWeb: 0 };
-  const seen = new Set();
-  sheetRows.forEach((s) => {
-    const mid = String(s.MessageId || "").trim();
-    if (!mid || seen.has(mid)) return;
-    seen.add(mid);
-    const tdk = String(s.Branch || "").toUpperCase() === "TIDAK TERDAFTAR" || !String(s.NamaRGE || "").trim();
-    if (abaikanTidakTerdaftar && tdk) { out.diabaikan++; return; }
-    out.totalSheet++;
-    const w = webMap.get(mid);
-    if (!w) { out.hilang.push(s); return; }
-    const diffs = [];
-    ["SP_IM3", "SP_3ID", "FWA"].forEach((k) => { if (num(s[k]) !== num(w[k])) diffs.push({ k, sheet: String(s[k] ?? "0"), web: String(w[k] ?? "kosong") }); });
-    ["Kategori", "NamaRGE", "ActivityId"].forEach((k) => {
-      const a = String(s[k] ?? "").trim(), b = String(w[k] ?? "").trim();
-      if (a !== "" && a.toLowerCase() !== b.toLowerCase()) diffs.push({ k, sheet: a, web: b || "kosong" });
-    });
-    if (diffs.length) out.beda.push({ s, diffs }); else out.sama++;
-  });
-  const sheetIds = new Set(sheetRows.map((s) => String(s.MessageId || "").trim()));
-  webMap.forEach((_, id) => { if (!sheetIds.has(id)) out.hanyaWeb++; });
-  return out;
-}
-
-function CekSinkronPanel({ rgeReports }) {
-  const [hasil, setHasil] = useState(null);
-  const [fileName, setFileName] = useState("");
-  const [abaikan, setAbaikan] = useState(true);
-  const [rowsCache, setRowsCache] = useState(null);
-  const [err, setErr] = useState("");
-  async function onFile(e) {
-    const f = e.target.files?.[0]; if (!f) return;
-    setErr(""); setFileName(f.name);
-    try {
-      let rows;
-      if (/\.xlsx?$/i.test(f.name)) {
-        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "", raw: false });
-      } else rows = parseDelimitedText(await f.text());
-      if (!rows.length || !("MessageId" in rows[0])) { setErr("Kolom MessageId tidak ditemukan. Pastikan ini export dari sheet REKAP RGE (baris pertama = judul kolom)."); setRowsCache(null); setHasil(null); return; }
-      setRowsCache(rows); setHasil(bandingkanSheetDenganWeb(rows, rgeReports, abaikan));
-    } catch (ex) { console.error(ex); setErr("Gagal membaca file."); }
-  }
-  const hitung = (v) => { setAbaikan(v); if (rowsCache) setHasil(bandingkanSheetDenganWeb(rowsCache, rgeReports, v)); };
-  const chip = (label, val, tone) => <div className={`rounded-lg border px-3 py-2 text-center ${tone}`}><div className="text-lg font-extrabold">{val}</div><div className="text-[10px] font-semibold">{label}</div></div>;
-  return (
-    <details className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-      <summary className="cursor-pointer font-bold text-slate-900">Cek sinkron Google Sheet ↔ Web</summary>
-      <p className="text-[11px] text-slate-400 mt-2 mb-3">Unduh sheet REKAP RGE (File → Unduh → CSV atau Excel), lalu pilih file-nya di sini. Web membandingkan tiap baris dengan laporan WA yang sudah masuk (dicocokkan lewat MessageId) dan menunjukkan baris yang belum masuk atau angkanya berbeda.</p>
-      <div className="flex flex-wrap items-center gap-3 mb-3">
-        <input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={onFile} className="text-xs" />
-        <label className="text-xs text-slate-600 flex items-center gap-1.5"><input type="checkbox" checked={abaikan} onChange={(e) => hitung(e.target.checked)} /> Abaikan baris tanpa nama RGE / "TIDAK TERDAFTAR"</label>
-        {fileName && <span className="text-[11px] text-slate-400">{fileName}</span>}
-      </div>
-      {err && <p className="text-xs text-rose-600 mb-2">{err}</p>}
-      {hasil && (
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {chip("Baris di Sheet", hasil.totalSheet, "border-slate-200 text-slate-700")}
-            {chip("Sama persis", hasil.sama, "border-emerald-200 bg-emerald-50 text-emerald-700")}
-            {chip("Belum masuk web", hasil.hilang.length, hasil.hilang.length ? "border-rose-200 bg-rose-50 text-rose-700" : "border-slate-200 text-slate-400")}
-            {chip("Angka / data beda", hasil.beda.length, hasil.beda.length ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-400")}
-            {chip("Diabaikan", hasil.diabaikan, "border-slate-200 text-slate-400")}
-          </div>
-          {hasil.hanyaWeb > 0 && <p className="text-[11px] text-slate-400">{hasil.hanyaWeb} laporan ada di web tetapi tidak ada di file Sheet ini (mis. masuk setelah file diunduh).</p>}
-          {hasil.hilang.length === 0 && hasil.beda.length === 0 && <p className="text-sm font-semibold text-emerald-700">✅ Semua baris Sheet sudah sama dengan data web.</p>}
-          {(hasil.hilang.length > 0 || hasil.beda.length > 0) && (
-            <>
-              <div className="overflow-x-auto max-h-80 overflow-y-auto border border-slate-200 rounded-lg">
-                <table className="w-full text-[11px] border-collapse">
-                  <thead className="sticky top-0 bg-slate-50"><tr className="text-left text-slate-500"><th className="px-2 py-1.5">Waktu</th><th className="px-2 py-1.5">RGE</th><th className="px-2 py-1.5">Jenis</th><th className="px-2 py-1.5">Masalah</th></tr></thead>
-                  <tbody>
-                    {hasil.hilang.slice(0, 150).map((s, i) => (
-                      <tr key={"h" + i} className="border-t border-slate-100"><td className="px-2 py-1">{String(s.Timestamp || "").slice(0, 16).replace("T", " ")}</td><td className="px-2 py-1">{s.NamaRGE}</td><td className="px-2 py-1">{s.Kategori}</td><td className="px-2 py-1 text-rose-600 font-semibold">Belum masuk web (IM3 {s.SP_IM3 || 0}, 3ID {s.SP_3ID || 0})</td></tr>
-                    ))}
-                    {hasil.beda.slice(0, 150).map(({ s, diffs }, i) => (
-                      <tr key={"b" + i} className="border-t border-slate-100"><td className="px-2 py-1">{String(s.Timestamp || "").slice(0, 16).replace("T", " ")}</td><td className="px-2 py-1">{s.NamaRGE}</td><td className="px-2 py-1">{s.Kategori}</td><td className="px-2 py-1 text-amber-700">{diffs.map((d) => `${d.k}: Sheet ${d.sheet} ≠ Web ${d.web}`).join(" · ")}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[11px] text-slate-500">Cara memperbaiki: jalankan workflow <b>Sync-Rekap-RGE-Sheet-ke-Firestore</b> di n8n (Jalankan Manual), lalu unggah ulang file ini untuk memastikan semuanya sama.</p>
-            </>
-          )}
-        </div>
-      )}
-    </details>
-  );
-}
-
-function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
-  const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
-  const [branchFilter, setBranchFilter] = useState("");
-  const [openKey, setOpenKey] = useState(null); // baris RGE yang rinciannya sedang dibuka
-  const monthKey = monthKeyOf(cursor);
-  const branches = sortBranches(Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))));
-  const data = kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter: branchFilter || null });
-  const prevMonth = () => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }));
-  const nextMonth = () => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }));
-
-  // Req Branding (SLA serah terima) tetap dipertahankan -- berbasis jadwal, bukan target.
-  const reqBrandingRows = activities
-    .filter((a) => normalizeJenisKegiatan(a.jenisKegiatan) === "Req Branding" && String(a.date || "").startsWith(monthKey))
-    .map((a) => ({ activity: a, member: members.find((m) => m.id === a.assignedMemberId), sla: reqBrandingSLA(a) }))
-    .sort((a, b) => String(a.activity.date).localeCompare(String(b.activity.date)));
-  const reqBrandingLate = reqBrandingRows.filter((r) => r.sla.onTime === false).length;
-
-  const th = "border border-slate-200 px-2 py-1.5 text-center font-bold";
-  const td = "border border-slate-200 px-2 py-1.5 text-center";
-  const num = (v) => (v ? v : <span className="text-slate-300">0</span>);
-  const groups = kpiGroupByBranch(data.quick);
-  const grand = Array(20).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
-  const posmTotal = (k) => data.posm.reduce((s, r) => s + (r.items[k] || 0), 0);
-  const adaVinil = data.posm.some((r) => r.items.vinil > 0);
-  const BLOK = [["DTU", "bg-indigo-50 text-indigo-700"], ["Desa", "bg-emerald-50 text-emerald-700"], ["School", "bg-amber-50 text-amber-700"], ["Event", "bg-violet-50 text-violet-700"]];
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
-          <p className="text-sm text-slate-500 mt-1">Quick count seluruh pencatatan kegiatan — input dari web maupun laporan grup WhatsApp.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-600 bg-white">
-            <option value="">Semua Branch</option>
-            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-          <IconBtn onClick={prevMonth} title="Bulan sebelumnya"><ChevronLeft size={16} /></IconBtn>
-          <span className="text-xs font-bold text-slate-700 min-w-[110px] text-center">{BULAN[cursor.m]} {cursor.y}</span>
-          <IconBtn onClick={nextMonth} title="Bulan berikutnya"><ChevronRight size={16} /></IconBtn>
-          <GhostBtn onClick={() => exportKpiQuickCountExcel(data, cursor, branchFilter || null)}><Download size={14} /> Excel</GhostBtn>
-        </div>
-      </div>
-
-      {/* Tabel 1: DTU / Desa / School (+ total) */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-        <h3 className="font-bold text-slate-900 mb-1">Penjualan SP per RGE — DTU, Desa, School, Event</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Activity = jumlah kegiatan tercatat. Total = IM3 + 3ID. TOTAL SP = IM3 + 3ID dari semua kegiatan selain FWA. Baris tebal per branch = subtotal. Klik nama RGE untuk melihat rincian laporan yang dihitung.</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse min-w-[1400px]">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500">
-                <th rowSpan={2} className={`${th} text-left min-w-[190px]`}>Nama RGE</th>
-                {BLOK.map(([l, c]) => <th key={l} colSpan={4} className={`${th} ${c}`}>{l}</th>)}
-                <th colSpan={4} className={`${th} bg-slate-200 text-slate-800`}>Total (DTU + Desa + School + Event)</th>
-              </tr>
-              <tr className="bg-slate-50 text-slate-500">
-                {[...BLOK.map(([l]) => l), "Total"].map((l) => ["Activity", "IM3", "3ID", l === "Total" ? "TOTAL SP" : "Total"].map((h) => <th key={l + h} className={th}>{h}</th>))}
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((grp) => (
-                <Fragment key={grp.branch}>
-                  <tr className="bg-slate-100 font-bold text-slate-900">
-                    <td className={`${td} text-left`}>{grp.branch}</td>
-                    {grp.sum.map((v, i) => <td key={i} className={td}>{v}</td>)}
-                  </tr>
-                  {grp.rows.map((r) => (
-                    <Fragment key={r.key}>
-                      <tr className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpenKey(openKey === r.key ? null : r.key)}>
-                        <td className={`${td} text-left text-slate-700`}><span className="text-slate-300 mr-1">{openKey === r.key ? "▾" : "▸"}</span>{r.name}</td>
-                        {kpiCells(r).map((v, i) => <td key={i} className={`${td} ${i === 19 ? "font-bold bg-slate-100" : ""}`}>{num(v)}</td>)}
-                      </tr>
-                      {openKey === r.key && (
-                        <tr><td colSpan={21} className="border border-slate-200 bg-slate-50/70 p-3">
-                          {r.entries.length === 0 ? <p className="text-[11px] text-slate-400 italic">Belum ada laporan tercatat bulan ini untuk {r.name}.</p> : (
-                            <table className="w-full text-[11px] border-collapse">
-                              <thead><tr className="text-slate-500 text-left"><th className="px-2 py-1">Tanggal</th><th className="px-2 py-1">Jenis</th><th className="px-2 py-1">Kegiatan / Lokasi</th><th className="px-2 py-1">Sumber</th><th className="px-2 py-1 text-center">IM3</th><th className="px-2 py-1 text-center">3ID</th><th className="px-2 py-1">Dihitung di tabel?</th></tr></thead>
-                              <tbody>
-                                {r.entries.map((e, i) => {
-                                  const blokIni = ["DTU", "Attack Desa", "Attack School", "Event"].includes(e.jenis);
-                                  const ikutTotal = e.jenis !== "FWA" && (blokIni || e.hasil.spIM3 + e.hasil.sp3ID > 0);
-                                  const hit = blokIni;
-                                  return (
-                                    <tr key={i} className={ikutTotal ? "" : "text-slate-400"}>
-                                      <td className="px-2 py-1">{e.tanggal}</td><td className="px-2 py-1">{e.jenis}</td><td className="px-2 py-1">{e.judul || "—"}</td><td className="px-2 py-1">{e.sumber}</td>
-                                      <td className="px-2 py-1 text-center">{e.hasil.spIM3}</td><td className="px-2 py-1 text-center">{e.hasil.sp3ID}</td><td className="px-2 py-1">{hit ? "Ya" : e.jenis === "FWA" ? "Tidak (FWA tidak dihitung)" : ikutTotal ? "Hanya masuk TOTAL SP" : "Tidak (tidak ada angka IM3/3ID)"}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          )}
-                        </td></tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </Fragment>
-              ))}
-              {groups.length > 0 && (
-                <tr className="bg-slate-900 text-white font-bold">
-                  <td className={`${td} text-left`}>TOTAL</td>
-                  {grand.map((v, i) => <td key={i} className={td}>{v}</td>)}
-                </tr>
-              )}
-            </tbody>
-          </table>
-          {groups.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada data untuk bulan ini.</p>}
-        </div>
-      </div>
-
-      {/* Tabel 2: Branding / POSM */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-        <h3 className="font-bold text-slate-900 mb-1">Branding / POSM</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Jumlah item dijumlahkan dari laporan "posm" di grup WhatsApp dan hasil kegiatan Branding yang diinput di web, per bulan.</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse min-w-[720px]">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500">
-                <th className={`${th} text-left`}>Branch</th><th className={`${th} text-left`}>RGE</th><th className={th}>Laporan</th>
-                {KPI_POSM_ITEMS.map(([, l]) => <th key={l} className={th}>{l}</th>)}
-                {adaVinil && <th className={th}>Vinil</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {data.posm.map((r) => (
-                <tr key={r.name + r.branch} className="hover:bg-slate-50">
-                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
-                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.name}</td>
-                  <td className={td}>{num(r.n)}</td>
-                  {KPI_POSM_ITEMS.map(([k]) => <td key={k} className={td}>{num(r.items[k])}</td>)}
-                  {adaVinil && <td className={td}>{num(r.items.vinil)}</td>}
-                </tr>
-              ))}
-              {data.posm.length > 0 && (
-                <tr className="bg-slate-900 text-white font-bold">
-                  <td className={`${td} text-left`} colSpan={2}>TOTAL</td>
-                  <td className={td}>{data.posm.reduce((s, r) => s + r.n, 0)}</td>
-                  {KPI_POSM_ITEMS.map(([k]) => <td key={k} className={td}>{posmTotal(k)}</td>)}
-                  {adaVinil && <td className={td}>{posmTotal("vinil")}</td>}
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Tabel 3: Stok MC */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-        <h3 className="font-bold text-slate-900 mb-1">Stok per MC</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Stok terbaru dari laporan "stok" di grup WhatsApp. Laporan baru untuk MC yang sama menggantikan angka sebelumnya (tidak dijumlahkan). Angka merah = stok habis (0).</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse min-w-[860px]">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500">
-                <th className={`${th} text-left`}>Nama MC</th><th className={`${th} text-left`}>Branch</th><th className={`${th} text-left`}>RGE</th><th className={th}>Update</th>
-                {KPI_STOK_ITEMS.map(([, l]) => <th key={l} className={th}>{l}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {data.stok.map((r) => (
-                <tr key={r.mc} className="hover:bg-slate-50">
-                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.foto ? <a href={r.foto} target="_blank" rel="noreferrer" className="hover:underline">{r.mc}</a> : r.mc}</td>
-                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
-                  <td className={`${td} text-left`}>{r.rge}</td>
-                  <td className={td}>{r.tanggal}</td>
-                  {KPI_STOK_ITEMS.map(([k]) => {
-                    const v = r.items[k];
-                    return <td key={k} className={`${td} ${v === 0 ? "text-rose-600 font-bold bg-rose-50" : ""}`}>{v === undefined ? <span className="text-slate-300">—</span> : v}</td>;
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {data.stok.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan stok. Format: <b>stok</b> → nama MC → Poster SP IM3: n, dst.</p>}
-        </div>
-      </div>
-
-      <CekSinkronPanel rgeReports={rgeReports} />
-
-      {/* Req Branding (SLA) -- dipertahankan dari halaman lama */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2"><Package size={16} className="text-amber-600" /><h3 className="font-bold text-slate-900">Req Branding — SLA Serah Terima</h3></div>
-          {reqBrandingLate > 0 && <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-full">{reqBrandingLate} terlambat</span>}
-        </div>
-        <p className="text-[11px] text-slate-400 mb-3">Permintaan branding dari GTM Region/HOA ke RGE bulan ini. Target SLA {REQ_BRANDING_SLA_DAYS} hari sejak tanggal permintaan sampai foto serah terima ke DSE/RSE/Depo di-upload.</p>
-        {reqBrandingRows.length === 0 ? (
-          <p className="text-sm text-slate-400 italic">Belum ada permintaan Req Branding bulan ini.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead><tr className="bg-slate-50 text-slate-500 text-left">
-                <th className="border border-slate-200 px-2.5 py-2">Tgl Permintaan</th><th className="border border-slate-200 px-2.5 py-2">RGE</th>
-                <th className="border border-slate-200 px-2.5 py-2">Diserahkan ke</th><th className="border border-slate-200 px-2.5 py-2">Tgl Serah Terima</th><th className="border border-slate-200 px-2.5 py-2">Status SLA</th>
-              </tr></thead>
-              <tbody>
-                {reqBrandingRows.map(({ activity, member, sla }) => (
-                  <tr key={activity.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onOpenActivity?.(activity.id)}>
-                    <td className="border border-slate-200 px-2.5 py-2">{activity.date}</td>
-                    <td className="border border-slate-200 px-2.5 py-2 font-semibold text-slate-700">{member?.name || "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-2">{activity.handoverTo || "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-2">{sla.completedDate ? sla.completedDate.toISOString().slice(0, 10) : "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-2 font-bold" style={{ color: sla.onTime === false ? "#DC2626" : sla.hasHandover ? "#059669" : "#B45309" }}>{sla.statusLabel}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// [Tidak dipakai] Halaman target-vs-pencapaian lama, disimpan kalau input target mau dihidupkan lagi.
-function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, activities = [], onOpenActivity }) {
+function RekapKPI({ members, rgeReports, kpiTargets, onSaveTarget, activities = [], onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [editMember, setEditMember] = useState(null);
   const monthKey = monthKeyOf(cursor);
@@ -3268,14 +2847,24 @@ function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, act
     .sort((a, b) => String(a.activity.date).localeCompare(String(b.activity.date)));
   const reqBrandingLate = reqBrandingRows.filter((r) => r.sla.onTime === false).length;
 
+  // Achv diambil dari SATU hitungan yang sama dengan Excel export (buildRekapBulanan), supaya
+  // laporan WA maupun web yang masuk bulan ini SELALU tercatat di kolom Achv di bawah -- walau
+  // target KPI-nya belum diisi sama sekali (Achv tetap jalan, cuma %Achv yang 0 kalau target 0).
+  const { rows: rekapRowsForKpi } = buildRekapBulanan({ activities, members, rgeReports, cursor });
   const rows = rgeMembers.map((m) => {
     const target = kpiTargets.find((t) => t.memberId === m.id && t.monthKey === monthKey) || {};
-    const achv = hitungAchievement(m.id, monthKey, rgeReports);
+    const rekapRow = rekapRowsForKpi.find((rr) => rr.key === m.id);
+    const achv = achvFromRekapRow(rekapRow);
+    const nota = notaStatsForMember(m.id, monthKey, rgeReports);
+    const targetSPIM3 = Number(target.targetSPIM3) || 0;
+    const targetSP3ID = Number(target.targetSP3ID) || 0;
     return {
       member: m,
       target,
       ...achv,
-      pctSP: pct(achv.achvSP, Number(target.targetSP) || 0),
+      ...nota,
+      targetSPIM3, targetSP3ID, targetSPTotal: targetSPTotalOf(target),
+      pctSP: pct(achv.achvSP, targetSPTotalOf(target)),
       pctFWA: pct(achv.achvFWA, Number(target.targetFWA) || 0),
       pctDesa: pct(achv.achvDesa, Number(target.targetDesa) || 0),
       pctSchool: pct(achv.achvSchool, Number(target.targetSchool) || 0),
@@ -3283,26 +2872,27 @@ function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, act
   });
 
   const totals = rows.reduce((acc, r) => ({
-    targetSP: acc.targetSP + (Number(r.target.targetSP) || 0), achvSP: acc.achvSP + r.achvSP,
+    targetSPIM3: acc.targetSPIM3 + r.targetSPIM3, targetSP3ID: acc.targetSP3ID + r.targetSP3ID,
+    targetSP: acc.targetSP + r.targetSPTotal, achvSP: acc.achvSP + r.achvSP,
     targetFWA: acc.targetFWA + (Number(r.target.targetFWA) || 0), achvFWA: acc.achvFWA + r.achvFWA,
     targetDesa: acc.targetDesa + (Number(r.target.targetDesa) || 0), achvDesa: acc.achvDesa + r.achvDesa,
     targetSchool: acc.targetSchool + (Number(r.target.targetSchool) || 0), achvSchool: acc.achvSchool + r.achvSchool,
     achvNotaLunas: acc.achvNotaLunas + r.achvNotaLunas, achvNotaTotal: acc.achvNotaTotal + r.achvNotaTotal,
-  }), { targetSP: 0, achvSP: 0, targetFWA: 0, achvFWA: 0, targetDesa: 0, achvDesa: 0, targetSchool: 0, achvSchool: 0, achvNotaLunas: 0, achvNotaTotal: 0 });
+  }), { targetSPIM3: 0, targetSP3ID: 0, targetSP: 0, achvSP: 0, targetFWA: 0, achvFWA: 0, targetDesa: 0, achvDesa: 0, targetSchool: 0, achvSchool: 0, achvNotaLunas: 0, achvNotaTotal: 0 });
 
   function exportExcel() {
-    const header = ["NO", "Nama RGE", "Branch", "POSM Achv (%)", "Target SP", "Achv SP", "%Achv SP", "Nota Lunas/Total", "Target FWA", "Achv FWA", "%Achv FWA", "Target Desa", "Achv Desa", "%Achv Desa", "Target School", "Achv School", "%Achv School"];
+    const header = ["NO", "Nama RGE", "Branch", "POSM Achv (%)", "Target SP IM3", "Target SP 3ID", "Achv SP (IM3+3ID)", "%Achv SP", "Nota Lunas/Total", "Target FWA", "Achv FWA", "%Achv FWA", "Target Desa", "Achv Desa", "%Achv Desa", "Target School", "Achv School", "%Achv School"];
     const body = rows.map((r, i) => [
       i + 1, r.member.name || r.member.fullName, r.member.branch,
       r.target.posmAchievementPercent || 0,
-      r.target.targetSP || 0, r.achvSP, `${r.pctSP}%`,
+      r.targetSPIM3, r.targetSP3ID, r.achvSP, `${r.pctSP}%`,
       `${r.achvNotaLunas}/${r.achvNotaTotal}`,
       r.target.targetFWA || 0, r.achvFWA, `${r.pctFWA}%`,
       r.target.targetDesa || 0, r.achvDesa, `${r.pctDesa}%`,
       r.target.targetSchool || 0, r.achvSchool, `${r.pctSchool}%`,
     ]);
     const totalRow = ["", "Total", "", "",
-      totals.targetSP, totals.achvSP, `${pct(totals.achvSP, totals.targetSP)}%`,
+      totals.targetSPIM3, totals.targetSP3ID, totals.achvSP, `${pct(totals.achvSP, totals.targetSP)}%`,
       `${totals.achvNotaLunas}/${totals.achvNotaTotal}`,
       totals.targetFWA, totals.achvFWA, `${pct(totals.achvFWA, totals.targetFWA)}%`,
       totals.targetDesa, totals.achvDesa, `${pct(totals.achvDesa, totals.targetDesa)}%`,
@@ -3338,7 +2928,7 @@ function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, act
               <th className="border border-slate-200 px-2 py-1.5 text-left">Nama RGE</th>
               <th className="border border-slate-200 px-2 py-1.5 text-left">Branch</th>
               <th className="border border-slate-200 px-2 py-1.5">POSM Achv</th>
-              <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target SP (40%)</th>
+              <th className="border border-slate-200 px-2 py-1.5" colSpan={4} title="Target dipecah IM3/3ID; Achv & %Achv menjumlahkan total IM3+3ID yang tercapai">Target SP (40%)</th>
               <th className="border border-slate-200 px-2 py-1.5" title="Cek manual: jumlah nota yang sudah ditandai Lunas vs total nota masuk bulan ini">Verifikasi Nota</th>
               <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target FWA (25%)</th>
               <th className="border border-slate-200 px-2 py-1.5" colSpan={3}>Target Desa (10%)</th>
@@ -3347,7 +2937,7 @@ function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, act
             </tr>
             <tr className="bg-slate-50 text-slate-500">
               <th className="border border-slate-200" colSpan={4}></th>
-              {["Target", "Achv", "%"].map((h) => <th key={"sp" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
+              {["IM3", "3ID", "Achv", "%"].map((h) => <th key={"sp" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
               <th className="border border-slate-200 px-1.5 py-1">Lunas/Total</th>
               {["Target", "Achv", "%"].map((h) => <th key={"fwa" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
               {["Target", "Achv", "%"].map((h) => <th key={"desa" + h} className="border border-slate-200 px-1.5 py-1">{h}</th>)}
@@ -3362,8 +2952,9 @@ function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, act
                 <td className="border border-slate-200 px-2 py-1 font-medium text-slate-800">{r.member.name || r.member.fullName}</td>
                 <td className="border border-slate-200 px-2 py-1 text-slate-500">{r.member.branch}</td>
                 <td className="border border-slate-200 text-center">{r.target.posmAchievementPercent ? `${r.target.posmAchievementPercent}%` : "-"}</td>
-                <td className="border border-slate-200 text-center">{r.target.targetSP || 0}</td>
-                <td className="border border-slate-200 text-center">{r.achvSP}</td>
+                <td className="border border-slate-200 text-center">{r.targetSPIM3}</td>
+                <td className="border border-slate-200 text-center">{r.targetSP3ID}</td>
+                <td className="border border-slate-200 text-center" title={`SP IM3 tercapai: ${r.achvSPIM3} · SP 3ID tercapai: ${r.achvSP3ID}`}>{r.achvSP}</td>
                 <td className="border border-slate-200 text-center font-semibold" style={{ color: r.pctSP >= 100 ? "#059669" : "#0F172A" }}>{r.pctSP}%</td>
                 <td className="border border-slate-200 text-center text-slate-500" title="Jumlah nota Lunas / total nota masuk bulan ini">
                   {r.achvNotaLunas}/{r.achvNotaTotal}
@@ -3385,7 +2976,8 @@ function RekapKPITargetLama({ members, rgeReports, kpiTargets, onSaveTarget, act
             ))}
             <tr className="bg-slate-100 font-bold text-slate-800">
               <td className="border border-slate-200 text-center" colSpan={4}>Total</td>
-              <td className="border border-slate-200 text-center">{totals.targetSP}</td>
+              <td className="border border-slate-200 text-center">{totals.targetSPIM3}</td>
+              <td className="border border-slate-200 text-center">{totals.targetSP3ID}</td>
               <td className="border border-slate-200 text-center">{totals.achvSP}</td>
               <td className="border border-slate-200 text-center">{pct(totals.achvSP, totals.targetSP)}%</td>
               <td className="border border-slate-200 text-center">{totals.achvNotaLunas}/{totals.achvNotaTotal}</td>
@@ -3621,17 +3213,21 @@ function Dashboard({ activities, members, rgeReports, kpiTargets, weekCursor, se
   // Rekap KPI, jadi angkanya konsisten dengan tab "Pencapaian KPI". ----
   const rgeMembersAll = members.filter((m) => (m.posisi || "RGE") === "RGE");
   function kpiForMonth(mKey) {
+    // Pakai sumber Achv yang sama dengan tab "Rekap KPI RGE" (buildRekapBulanan, gabungan WA+Web),
+    // supaya gauge "Pencapaian KPI" di Beranda ini SELALU sinkron dengan angka di tab KPI & Excel.
+    const { rows: rekapRowsKpi } = buildRekapBulanan({ activities, members, rgeReports, cursor: cursorFromMonthKey(mKey) });
     const totals = rgeMembersAll.reduce((acc, m) => {
       const target = kpiTargets.find((t) => t.memberId === m.id && t.monthKey === mKey) || {};
-      const achv = hitungAchievement(m.id, mKey, rgeReports);
+      const achv = achvFromRekapRow(rekapRowsKpi.find((rr) => rr.key === m.id));
+      const targetSP = targetSPTotalOf(target);
       return {
-        targetSP: acc.targetSP + (Number(target.targetSP) || 0), achvSP: acc.achvSP + achv.achvSP,
+        targetSP: acc.targetSP + targetSP, achvSP: acc.achvSP + achv.achvSP,
         targetFWA: acc.targetFWA + (Number(target.targetFWA) || 0), achvFWA: acc.achvFWA + achv.achvFWA,
         targetDesa: acc.targetDesa + (Number(target.targetDesa) || 0), achvDesa: acc.achvDesa + achv.achvDesa,
         targetSchool: acc.targetSchool + (Number(target.targetSchool) || 0), achvSchool: acc.achvSchool + achv.achvSchool,
         posmSum: acc.posmSum + (Number(target.posmAchievementPercent) || 0),
         posmCount: acc.posmCount + (target.posmAchievementPercent ? 1 : 0),
-        anyTarget: acc.anyTarget || Number(target.targetSP) > 0 || Number(target.targetFWA) > 0 || Number(target.targetDesa) > 0 || Number(target.targetSchool) > 0 || Number(target.posmAchievementPercent) > 0,
+        anyTarget: acc.anyTarget || targetSP > 0 || Number(target.targetFWA) > 0 || Number(target.targetDesa) > 0 || Number(target.targetSchool) > 0 || Number(target.posmAchievementPercent) > 0,
       };
     }, { targetSP: 0, achvSP: 0, targetFWA: 0, achvFWA: 0, targetDesa: 0, achvDesa: 0, targetSchool: 0, achvSchool: 0, posmSum: 0, posmCount: 0, anyTarget: false });
     const posmAvg = totals.posmCount ? Math.round(totals.posmSum / totals.posmCount) : 0;
