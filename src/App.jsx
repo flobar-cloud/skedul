@@ -2412,6 +2412,8 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
     if (!date || !date.startsWith(monthPrefix)) return;
     const mem = resolveMemberForReport(r, members);
     const branch = mem?.branch || r.Branch || r.branch || "";
+    // Pengirim yang tidak dikenali (tanpa nama RGE / "TIDAK TERDAFTAR") diabaikan dari rekap.
+    if (!mem && (!branch || String(branch).toUpperCase() === "TIDAK TERDAFTAR")) return;
     if (branchFilter && branch !== branchFilter) return;
     const url = r.FotoURL || r.fotoUrl;
     entries.push({
@@ -2917,6 +2919,121 @@ function exportKpiQuickCountExcel(data, cursor, branchFilter) {
   XLSX.writeFile(wb, `Quick-Count-KPI-${monthKey}${branchFilter ? "-" + branchFilter.replace(/\s+/g, "") : ""}.xlsx`);
 }
 
+// ---------- Cek sinkron Google Sheet <-> data web ----------
+// Parser CSV sederhana (otomatis mengenali pemisah ; , atau tab; mendukung teks bertanda kutip & baris baru).
+function parseDelimitedText(text) {
+  const clean = String(text || "").replace(/^\uFEFF/, "");
+  const first = clean.split(/\r?\n/, 1)[0] || "";
+  const delim = [";", "\t", ","].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = []; let row = [], cur = "", inQ = false;
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i];
+    if (inQ) { if (c === '"') { if (clean[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
+    else if (c === '"') inQ = true;
+    else if (c === delim) { row.push(cur); cur = ""; }
+    else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+    else if (c !== "\r") cur += c;
+  }
+  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+  if (!rows.length) return [];
+  const header = rows[0].map((h) => String(h).trim());
+  return rows.slice(1).filter((r) => r.some((x) => x !== "")).map((r) => Object.fromEntries(header.map((h, i) => [h, r[i] ?? ""])));
+}
+// Bandingkan baris Sheet (hasil export) dengan laporan WA yang ada di web, dicocokkan lewat MessageId.
+function bandingkanSheetDenganWeb(sheetRows, rgeReports, abaikanTidakTerdaftar = true) {
+  const webMap = new Map();
+  rgeReports.forEach((r) => { const id = String(r.MessageId || "").trim(); if (id) webMap.set(id, r); });
+  const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
+  const out = { totalSheet: 0, sama: 0, diabaikan: 0, hilang: [], beda: [], hanyaWeb: 0 };
+  const seen = new Set();
+  sheetRows.forEach((s) => {
+    const mid = String(s.MessageId || "").trim();
+    if (!mid || seen.has(mid)) return;
+    seen.add(mid);
+    const tdk = String(s.Branch || "").toUpperCase() === "TIDAK TERDAFTAR" || !String(s.NamaRGE || "").trim();
+    if (abaikanTidakTerdaftar && tdk) { out.diabaikan++; return; }
+    out.totalSheet++;
+    const w = webMap.get(mid);
+    if (!w) { out.hilang.push(s); return; }
+    const diffs = [];
+    ["SP_IM3", "SP_3ID", "FWA"].forEach((k) => { if (num(s[k]) !== num(w[k])) diffs.push({ k, sheet: String(s[k] ?? "0"), web: String(w[k] ?? "kosong") }); });
+    ["Kategori", "NamaRGE", "ActivityId"].forEach((k) => {
+      const a = String(s[k] ?? "").trim(), b = String(w[k] ?? "").trim();
+      if (a !== "" && a.toLowerCase() !== b.toLowerCase()) diffs.push({ k, sheet: a, web: b || "kosong" });
+    });
+    if (diffs.length) out.beda.push({ s, diffs }); else out.sama++;
+  });
+  const sheetIds = new Set(sheetRows.map((s) => String(s.MessageId || "").trim()));
+  webMap.forEach((_, id) => { if (!sheetIds.has(id)) out.hanyaWeb++; });
+  return out;
+}
+
+function CekSinkronPanel({ rgeReports }) {
+  const [hasil, setHasil] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [abaikan, setAbaikan] = useState(true);
+  const [rowsCache, setRowsCache] = useState(null);
+  const [err, setErr] = useState("");
+  async function onFile(e) {
+    const f = e.target.files?.[0]; if (!f) return;
+    setErr(""); setFileName(f.name);
+    try {
+      let rows;
+      if (/\.xlsx?$/i.test(f.name)) {
+        const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "", raw: false });
+      } else rows = parseDelimitedText(await f.text());
+      if (!rows.length || !("MessageId" in rows[0])) { setErr("Kolom MessageId tidak ditemukan. Pastikan ini export dari sheet REKAP RGE (baris pertama = judul kolom)."); setRowsCache(null); setHasil(null); return; }
+      setRowsCache(rows); setHasil(bandingkanSheetDenganWeb(rows, rgeReports, abaikan));
+    } catch (ex) { console.error(ex); setErr("Gagal membaca file."); }
+  }
+  const hitung = (v) => { setAbaikan(v); if (rowsCache) setHasil(bandingkanSheetDenganWeb(rowsCache, rgeReports, v)); };
+  const chip = (label, val, tone) => <div className={`rounded-lg border px-3 py-2 text-center ${tone}`}><div className="text-lg font-extrabold">{val}</div><div className="text-[10px] font-semibold">{label}</div></div>;
+  return (
+    <details className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
+      <summary className="cursor-pointer font-bold text-slate-900">Cek sinkron Google Sheet ↔ Web</summary>
+      <p className="text-[11px] text-slate-400 mt-2 mb-3">Unduh sheet REKAP RGE (File → Unduh → CSV atau Excel), lalu pilih file-nya di sini. Web membandingkan tiap baris dengan laporan WA yang sudah masuk (dicocokkan lewat MessageId) dan menunjukkan baris yang belum masuk atau angkanya berbeda.</p>
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={onFile} className="text-xs" />
+        <label className="text-xs text-slate-600 flex items-center gap-1.5"><input type="checkbox" checked={abaikan} onChange={(e) => hitung(e.target.checked)} /> Abaikan baris tanpa nama RGE / "TIDAK TERDAFTAR"</label>
+        {fileName && <span className="text-[11px] text-slate-400">{fileName}</span>}
+      </div>
+      {err && <p className="text-xs text-rose-600 mb-2">{err}</p>}
+      {hasil && (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {chip("Baris di Sheet", hasil.totalSheet, "border-slate-200 text-slate-700")}
+            {chip("Sama persis", hasil.sama, "border-emerald-200 bg-emerald-50 text-emerald-700")}
+            {chip("Belum masuk web", hasil.hilang.length, hasil.hilang.length ? "border-rose-200 bg-rose-50 text-rose-700" : "border-slate-200 text-slate-400")}
+            {chip("Angka / data beda", hasil.beda.length, hasil.beda.length ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-400")}
+            {chip("Diabaikan", hasil.diabaikan, "border-slate-200 text-slate-400")}
+          </div>
+          {hasil.hanyaWeb > 0 && <p className="text-[11px] text-slate-400">{hasil.hanyaWeb} laporan ada di web tetapi tidak ada di file Sheet ini (mis. masuk setelah file diunduh).</p>}
+          {hasil.hilang.length === 0 && hasil.beda.length === 0 && <p className="text-sm font-semibold text-emerald-700">✅ Semua baris Sheet sudah sama dengan data web.</p>}
+          {(hasil.hilang.length > 0 || hasil.beda.length > 0) && (
+            <>
+              <div className="overflow-x-auto max-h-80 overflow-y-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-[11px] border-collapse">
+                  <thead className="sticky top-0 bg-slate-50"><tr className="text-left text-slate-500"><th className="px-2 py-1.5">Waktu</th><th className="px-2 py-1.5">RGE</th><th className="px-2 py-1.5">Jenis</th><th className="px-2 py-1.5">Masalah</th></tr></thead>
+                  <tbody>
+                    {hasil.hilang.slice(0, 150).map((s, i) => (
+                      <tr key={"h" + i} className="border-t border-slate-100"><td className="px-2 py-1">{String(s.Timestamp || "").slice(0, 16).replace("T", " ")}</td><td className="px-2 py-1">{s.NamaRGE}</td><td className="px-2 py-1">{s.Kategori}</td><td className="px-2 py-1 text-rose-600 font-semibold">Belum masuk web (IM3 {s.SP_IM3 || 0}, 3ID {s.SP_3ID || 0})</td></tr>
+                    ))}
+                    {hasil.beda.slice(0, 150).map(({ s, diffs }, i) => (
+                      <tr key={"b" + i} className="border-t border-slate-100"><td className="px-2 py-1">{String(s.Timestamp || "").slice(0, 16).replace("T", " ")}</td><td className="px-2 py-1">{s.NamaRGE}</td><td className="px-2 py-1">{s.Kategori}</td><td className="px-2 py-1 text-amber-700">{diffs.map((d) => `${d.k}: Sheet ${d.sheet} ≠ Web ${d.web}`).join(" · ")}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-slate-500">Cara memperbaiki: jalankan workflow <b>Sync-Rekap-RGE-Sheet-ke-Firestore</b> di n8n (Jalankan Manual), lalu unggah ulang file ini untuk memastikan semuanya sama.</p>
+            </>
+          )}
+        </div>
+      )}
+    </details>
+  );
+}
+
 function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branchFilter, setBranchFilter] = useState("");
@@ -3095,6 +3212,8 @@ function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
           {data.stok.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan stok. Format: <b>stok</b> → nama MC → Poster SP IM3: n, dst.</p>}
         </div>
       </div>
+
+      <CekSinkronPanel rgeReports={rgeReports} />
 
       {/* Req Branding (SLA) -- dipertahankan dari halaman lama */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
