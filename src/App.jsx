@@ -1063,7 +1063,7 @@ export default function PapanKegiatan() {
                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
                 <p className="text-sm text-slate-500 mt-1">Target vs pencapaian bulanan per RGE.</p>
               </div>
-              <RekapKPI members={members} rgeReports={rgeReports} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} activities={activities} onOpenActivity={(id) => setDetailId(id)} />
+              <RekapKPI members={members} rgeReports={rgeReports} reportsError={reportsError} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} activities={activities} onOpenActivity={(id) => setDetailId(id)} />
             </div>
           )}
 
@@ -3051,7 +3051,7 @@ function CekSinkronPanel({ rgeReports, reportsError = "" }) {
   );
 }
 
-function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
+function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branchFilter, setBranchFilter] = useState("");
   const [openKey, setOpenKey] = useState(null); // baris RGE yang rinciannya sedang dibuka
