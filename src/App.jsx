@@ -2316,6 +2316,20 @@ function reportDetailText(r) {
   return r.NamaEvent || r.namaEvent || r.NamaLokasi || r.namaLokasi || r.NamaDesa || r.namaDesa || r.NamaSekolah || r.namaSekolah || "";
 }
 
+// Cari anggota pemilik sebuah laporan WA. Urutan: nomor pengirim -> memberId -> NAMA RGE yang tersimpan di laporan.
+// Fallback nama penting untuk laporan hasil backfill dari Google Sheet, di mana nomor panjang bisa terpotong
+// (notasi ilmiah) tapi kolom NamaRGE-nya tetap benar.
+function resolveMemberForReport(r, members) {
+  const key = phoneKey(r.Sender || r.sender || r.phone);
+  let m = key ? members.find((x) => phoneKey(x.phone || x.id) === key) : null;
+  if (!m && (r.memberId || r.MemberId)) m = members.find((x) => x.id === (r.memberId || r.MemberId));
+  if (!m) {
+    const nm = String(r.NamaRGE || "").trim().toLowerCase();
+    if (nm && !/^\d+$/.test(nm)) m = members.find((x) => String(x.name || "").trim().toLowerCase() === nm);
+  }
+  return m || null;
+}
+
 // Daftar foto galeri (dipakai tampilan web DAN PDF supaya isinya selalu sama).
 function collectGaleriPhotos({ activities, members, rgeReports = [], cursor, branchFilter = null, jenisFilter = null }) {
   const monthPrefix = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
@@ -2328,8 +2342,7 @@ function collectGaleriPhotos({ activities, members, rgeReports = [], cursor, bra
     const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
     const date = act?.date || reportDateLocal(r);
     if (!date || !date.startsWith(monthPrefix)) return;
-    const senderKey = phoneKey(r.Sender || r.sender || r.phone);
-    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || members.find((m) => phoneKey(m.phone || m.id) === senderKey);
+    const mem = (act && members.find((m) => m.id === act.assignedMemberId)) || resolveMemberForReport(r, members);
     const branch = mem?.branch || r.Branch || r.branch;
     const jenis = act ? normalizeJenisKegiatan(act.jenisKegiatan) : KATEGORI_KE_JENIS[cat];
     if (branchFilter && branch !== branchFilter) return;
@@ -2381,7 +2394,11 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
     const nFotoWeb = (a.photos || []).length;
     const bukti = a.status === "selesai" || adaHasilWeb || nFotoWeb > 0 || reports.length > 0;
     if (!bukti) return;
-    const hasil = adaHasilWeb ? hasilWeb : reports.reduce((acc, r) => addHasil(acc, hasilFromReport(r)), emptyHasil());
+    // Gabung per field: nilai dari input web dipakai kalau > 0, kalau 0 diambil dari laporan WA yang terhubung.
+    // (Dulu: kalau hasil web punya satu angka saja, angka SP dari laporan WA ikut diabaikan -> jadi 0.)
+    const hasilLink = reports.reduce((acc, r) => addHasil(acc, hasilFromReport(r)), emptyHasil());
+    const hasil = emptyHasil();
+    HASIL_FIELDS.forEach(([k]) => { hasil[k] = hasilWeb[k] > 0 ? hasilWeb[k] : hasilLink[k]; });
     const links = reports.map((r) => r.FotoURL || r.fotoUrl).filter(Boolean);
     entries.push({
       tanggal: a.date, memberId: a.assignedMemberId, rge: mem?.name || "(tanpa PIC)", branch: mem?.branch || "",
@@ -2393,7 +2410,7 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
   standalone.forEach((r) => {
     const date = reportDateLocal(r);
     if (!date || !date.startsWith(monthPrefix)) return;
-    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender || r.phone));
+    const mem = resolveMemberForReport(r, members);
     const branch = mem?.branch || r.Branch || r.branch || "";
     if (branchFilter && branch !== branchFilter) return;
     const url = r.FotoURL || r.fotoUrl;
@@ -2408,13 +2425,14 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
   // Baris rekap: semua RGE (walau 0 laporan, supaya kelihatan siapa yang belum lapor) + pengirim tak dikenal.
   const rgeList = sortMembersByBranch(members.filter((m) => (m.posisi || "RGE") === "RGE" && (!branchFilter || m.branch === branchFilter)));
   const rowsMap = new Map();
-  const newRow = (key, name, branch, jadwal) => ({ key, name, branch, jadwal, terlaksana: 0, dariJadwal: 0, perJenis: {}, total: emptyHasil() });
+  const newRow = (key, name, branch, jadwal) => ({ key, name, branch, jadwal, terlaksana: 0, dariJadwal: 0, perJenis: {}, total: emptyHasil(), entries: [] });
   rgeList.forEach((m) => rowsMap.set(m.id, newRow(m.id, m.name, m.branch || "", jadwalByMember[m.id] || 0)));
   entries.forEach((e) => {
     const key = e.memberId && rowsMap.has(e.memberId) ? e.memberId : `x:${e.rge}`;
     if (!rowsMap.has(key)) rowsMap.set(key, newRow(key, e.rge, e.branch, 0));
     const row = rowsMap.get(key);
     row.terlaksana += 1;
+    row.entries.push(e);
     if (e.fromJadwal) row.dariJadwal += 1; // dipakai untuk % realisasi (laporan WA tanpa jadwal tidak menaikkan persentase)
     const pj = (row.perJenis[e.jenis] = row.perJenis[e.jenis] || { n: 0, hasil: emptyHasil() });
     pj.n += 1; addHasil(pj.hasil, e.hasil); addHasil(row.total, e.hasil);
@@ -2604,7 +2622,7 @@ function GaleriPerBranch({ members, rgeReports }) {
   const resolveBranch = (r) => {
     let b = String(r.Branch || r.branch || "").trim();
     if (!b || b.toUpperCase() === "TIDAK TERDAFTAR") {
-      const mem = members.find((x) => phoneKey(x.phone || x.id) === phoneKey(r.Sender || r.sender || r.phone));
+      const mem = resolveMemberForReport(r, members);
       b = String(mem?.branch || "").trim();
     }
     if (!b) return NO_BRANCH;
@@ -2829,7 +2847,7 @@ function latestStokPerMC(rgeReports, members, branchFilter = null) {
   const rows = [...latest.values()].map(({ r, ts, mc }) => {
     let items = r.PosmItems ?? r.posmItems ?? {};
     if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
-    const mem = members.find((m) => phoneKey(m.phone || m.id) === phoneKey(r.Sender || r.sender));
+    const mem = resolveMemberForReport(r, members);
     const branch = mem?.branch || (String(r.Branch || "") === "TIDAK TERDAFTAR" ? "" : r.Branch) || "";
     return { mc, items: items || {}, rge: mem?.name || r.NamaRGE || r.Sender || "", branch, tanggal: reportDateLocal(r) || ts.slice(0, 10), foto: r.FotoURL || r.fotoUrl || "" };
   }).filter((x) => !branchFilter || x.branch === branchFilter);
@@ -2840,12 +2858,17 @@ function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilt
   const { rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
   const g = (row, j) => row.perJenis[j] || { n: 0, hasil: emptyHasil() };
   const quick = rows.map((r) => {
-    const blok = ["DTU", "Attack Desa", "Attack School"].map((j) => {
+    const JENIS_BLOK = ["DTU", "Attack Desa", "Attack School", "Event"];
+    const blok = JENIS_BLOK.map((j) => {
       const x = g(r, j);
       return { n: x.n, im3: x.hasil.spIM3, id3: x.hasil.sp3ID, total: x.hasil.spIM3 + x.hasil.sp3ID };
     });
-    const tIM3 = blok.reduce((s, b) => s + b.im3, 0), t3ID = blok.reduce((s, b) => s + b.id3, 0);
-    return { name: r.name, branch: r.branch, blok, tIM3, t3ID, total: tIM3 + t3ID };
+    // TOTAL SP = IM3 + 3ID dari SEMUA kegiatan selain FWA. Selain 4 blok di atas, jenis lain (mis. Branding) hanya
+    // ikut kalau memang punya angka IM3/3ID; FWA tidak pernah dihitung.
+    const lain = Object.entries(r.perJenis).filter(([j]) => !JENIS_BLOK.includes(j) && j !== "FWA").reduce((a, [, v]) => ({ im3: a.im3 + v.hasil.spIM3, id3: a.id3 + v.hasil.sp3ID }), { im3: 0, id3: 0 });
+    const tAct = blok.reduce((s, b) => s + b.n, 0);
+    const tIM3 = blok.reduce((s, b) => s + b.im3, 0) + lain.im3, t3ID = blok.reduce((s, b) => s + b.id3, 0) + lain.id3;
+    return { key: r.key, name: r.name, branch: r.branch, blok, tAct, tIM3, t3ID, total: tIM3 + t3ID, entries: r.entries };
   });
   const posm = rows.map((r) => {
     const x = g(r, "Branding");
@@ -2854,13 +2877,30 @@ function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilt
   return { quick, posm, stok: latestStokPerMC(rgeReports, members, branchFilter) };
 }
 
+// 20 angka per baris: [DTU Act,IM3,3ID,Total] [Desa ...] [School ...] [Event ...] [Total Act,IM3,3ID,TOTAL SP]
+const kpiCells = (r) => [...r.blok.flatMap((b) => [b.n, b.im3, b.id3, b.total]), r.tAct, r.tIM3, r.t3ID, r.total];
+// Kelompokkan per branch (urut sesuai urutan wilayah), tiap kelompok punya baris subtotal.
+function kpiGroupByBranch(quick) {
+  const groups = []; const gm = new Map();
+  quick.forEach((r) => {
+    const b = r.branch || "Tanpa Branch";
+    if (!gm.has(b)) { const grp = { branch: b, rows: [] }; gm.set(b, grp); groups.push(grp); }
+    gm.get(b).rows.push(r);
+  });
+  groups.sort((x, y) => branchRank(x.branch === "Tanpa Branch" ? "" : x.branch) - branchRank(y.branch === "Tanpa Branch" ? "" : y.branch) || x.branch.localeCompare(y.branch));
+  groups.forEach((grp) => { grp.sum = Array(20).fill(0); grp.rows.forEach((r) => kpiCells(r).forEach((v, i) => { grp.sum[i] += v; })); });
+  return groups;
+}
+
 function exportKpiQuickCountExcel(data, cursor, branchFilter) {
   const monthKey = monthKeyOf(cursor);
-  const h1 = ["Branch", "RGE", "DTU Jml", "DTU IM3", "DTU 3ID", "DTU Total", "Desa Jml", "Desa IM3", "Desa 3ID", "Desa Total", "School Jml", "School IM3", "School 3ID", "School Total", "Total IM3", "Total 3ID", "TOTAL IM3+3ID"];
-  const body1 = data.quick.map((r) => [r.branch, r.name, ...r.blok.flatMap((b) => [b.n, b.im3, b.id3, b.total]), r.tIM3, r.t3ID, r.total]);
-  const tot = (i) => body1.reduce((s, row) => s + (Number(row[i]) || 0), 0);
-  const ws1 = XLSX.utils.aoa_to_sheet([h1, ...body1, ["TOTAL", "", ...h1.slice(2).map((_, i) => tot(i + 2))]]);
-  ws1["!cols"] = h1.map((h, i) => ({ wch: i === 0 ? 16 : i === 1 ? 26 : 11 }));
+  const h1 = ["Nama RGE", ...["DTU", "Desa", "School", "Event"].flatMap((l) => [`${l} Activity`, `${l} IM3`, `${l} 3ID`, `${l} Total`]), "Total Activity", "Total IM3", "Total 3ID", "TOTAL SP"];
+  const groups = kpiGroupByBranch(data.quick);
+  const body1 = [];
+  groups.forEach((grp) => { body1.push([grp.branch, ...grp.sum]); grp.rows.forEach((r) => body1.push(["    " + r.name, ...kpiCells(r)])); });
+  const grand = Array(20).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
+  const ws1 = XLSX.utils.aoa_to_sheet([h1, ...body1, ["TOTAL", ...grand]]);
+  ws1["!cols"] = h1.map((h, i) => ({ wch: i === 0 ? 30 : 12 }));
   const h2 = ["Branch", "RGE", "Jml Laporan", ...KPI_POSM_ITEMS.map(([, l]) => l), "Vinil"];
   const body2 = data.posm.map((r) => [r.branch, r.name, r.n, ...KPI_POSM_ITEMS.map(([k]) => r.items[k] || 0), r.items.vinil || 0]);
   const tot2 = (i) => body2.reduce((s, row) => s + (Number(row[i]) || 0), 0);
@@ -2880,6 +2920,7 @@ function exportKpiQuickCountExcel(data, cursor, branchFilter) {
 function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branchFilter, setBranchFilter] = useState("");
+  const [openKey, setOpenKey] = useState(null); // baris RGE yang rinciannya sedang dibuka
   const monthKey = monthKeyOf(cursor);
   const branches = sortBranches(Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))));
   const data = kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter: branchFilter || null });
@@ -2896,10 +2937,11 @@ function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
   const th = "border border-slate-200 px-2 py-1.5 text-center font-bold";
   const td = "border border-slate-200 px-2 py-1.5 text-center";
   const num = (v) => (v ? v : <span className="text-slate-300">0</span>);
-  const sumQ = (pick) => data.quick.reduce((s, r) => s + pick(r), 0);
+  const groups = kpiGroupByBranch(data.quick);
+  const grand = Array(20).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
   const posmTotal = (k) => data.posm.reduce((s, r) => s + (r.items[k] || 0), 0);
   const adaVinil = data.posm.some((r) => r.items.vinil > 0);
-  const BLOK = [["DTU", "bg-indigo-50 text-indigo-700"], ["Desa", "bg-emerald-50 text-emerald-700"], ["School", "bg-amber-50 text-amber-700"]];
+  const BLOK = [["DTU", "bg-indigo-50 text-indigo-700"], ["Desa", "bg-emerald-50 text-emerald-700"], ["School", "bg-amber-50 text-amber-700"], ["Event", "bg-violet-50 text-violet-700"]];
 
   return (
     <div className="flex flex-col gap-5">
@@ -2920,48 +2962,70 @@ function RekapKPI({ members, rgeReports, activities = [], onOpenActivity }) {
         </div>
       </div>
 
-      {/* Tabel 1: DTU / Desa / School */}
+      {/* Tabel 1: DTU / Desa / School (+ total) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-        <h3 className="font-bold text-slate-900 mb-1">Penjualan SP per RGE — DTU, Desa, School</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Jml = jumlah kegiatan tercatat. Total = IM3 + 3ID. Kolom TOTAL di kanan = seluruh IM3 + 3ID dari DTU, Desa, dan School.</p>
+        <h3 className="font-bold text-slate-900 mb-1">Penjualan SP per RGE — DTU, Desa, School, Event</h3>
+        <p className="text-[11px] text-slate-400 mb-3">Activity = jumlah kegiatan tercatat. Total = IM3 + 3ID. TOTAL SP = IM3 + 3ID dari semua kegiatan selain FWA. Baris tebal per branch = subtotal. Klik nama RGE untuk melihat rincian laporan yang dihitung.</p>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse min-w-[1000px]">
+          <table className="w-full text-xs border-collapse min-w-[1400px]">
             <thead>
               <tr className="bg-slate-50 text-slate-500">
-                <th rowSpan={2} className={`${th} text-left`}>Branch</th>
-                <th rowSpan={2} className={`${th} text-left`}>RGE</th>
+                <th rowSpan={2} className={`${th} text-left min-w-[190px]`}>Nama RGE</th>
                 {BLOK.map(([l, c]) => <th key={l} colSpan={4} className={`${th} ${c}`}>{l}</th>)}
-                <th rowSpan={2} className={th}>Total IM3</th>
-                <th rowSpan={2} className={th}>Total 3ID</th>
-                <th rowSpan={2} className={`${th} bg-slate-900 text-white`}>TOTAL</th>
+                <th colSpan={4} className={`${th} bg-slate-200 text-slate-800`}>Total (DTU + Desa + School + Event)</th>
               </tr>
               <tr className="bg-slate-50 text-slate-500">
-                {BLOK.map(([l]) => ["Jml", "IM3", "3ID", "Total"].map((h) => <th key={l + h} className={th}>{h}</th>))}
+                {[...BLOK.map(([l]) => l), "Total"].map((l) => ["Activity", "IM3", "3ID", l === "Total" ? "TOTAL SP" : "Total"].map((h) => <th key={l + h} className={th}>{h}</th>))}
               </tr>
             </thead>
             <tbody>
-              {data.quick.map((r) => (
-                <tr key={r.name + r.branch} className="hover:bg-slate-50">
-                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
-                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.name}</td>
-                  {r.blok.map((b, i) => [b.n, b.im3, b.id3, b.total].map((v, k) => <td key={i + "-" + k} className={`${td} ${k === 3 ? "font-bold" : ""}`}>{num(v)}</td>))}
-                  <td className={`${td} font-bold`}>{num(r.tIM3)}</td>
-                  <td className={`${td} font-bold`}>{num(r.t3ID)}</td>
-                  <td className={`${td} font-black bg-slate-100`}>{num(r.total)}</td>
-                </tr>
+              {groups.map((grp) => (
+                <Fragment key={grp.branch}>
+                  <tr className="bg-slate-100 font-bold text-slate-900">
+                    <td className={`${td} text-left`}>{grp.branch}</td>
+                    {grp.sum.map((v, i) => <td key={i} className={td}>{v}</td>)}
+                  </tr>
+                  {grp.rows.map((r) => (
+                    <Fragment key={r.key}>
+                      <tr className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpenKey(openKey === r.key ? null : r.key)}>
+                        <td className={`${td} text-left text-slate-700`}><span className="text-slate-300 mr-1">{openKey === r.key ? "▾" : "▸"}</span>{r.name}</td>
+                        {kpiCells(r).map((v, i) => <td key={i} className={`${td} ${i === 19 ? "font-bold bg-slate-100" : ""}`}>{num(v)}</td>)}
+                      </tr>
+                      {openKey === r.key && (
+                        <tr><td colSpan={21} className="border border-slate-200 bg-slate-50/70 p-3">
+                          {r.entries.length === 0 ? <p className="text-[11px] text-slate-400 italic">Belum ada laporan tercatat bulan ini untuk {r.name}.</p> : (
+                            <table className="w-full text-[11px] border-collapse">
+                              <thead><tr className="text-slate-500 text-left"><th className="px-2 py-1">Tanggal</th><th className="px-2 py-1">Jenis</th><th className="px-2 py-1">Kegiatan / Lokasi</th><th className="px-2 py-1">Sumber</th><th className="px-2 py-1 text-center">IM3</th><th className="px-2 py-1 text-center">3ID</th><th className="px-2 py-1">Dihitung di tabel?</th></tr></thead>
+                              <tbody>
+                                {r.entries.map((e, i) => {
+                                  const blokIni = ["DTU", "Attack Desa", "Attack School", "Event"].includes(e.jenis);
+                                  const ikutTotal = e.jenis !== "FWA" && (blokIni || e.hasil.spIM3 + e.hasil.sp3ID > 0);
+                                  const hit = blokIni;
+                                  return (
+                                    <tr key={i} className={ikutTotal ? "" : "text-slate-400"}>
+                                      <td className="px-2 py-1">{e.tanggal}</td><td className="px-2 py-1">{e.jenis}</td><td className="px-2 py-1">{e.judul || "—"}</td><td className="px-2 py-1">{e.sumber}</td>
+                                      <td className="px-2 py-1 text-center">{e.hasil.spIM3}</td><td className="px-2 py-1 text-center">{e.hasil.sp3ID}</td><td className="px-2 py-1">{hit ? "Ya" : e.jenis === "FWA" ? "Tidak (FWA tidak dihitung)" : ikutTotal ? "Hanya masuk TOTAL SP" : "Tidak (tidak ada angka IM3/3ID)"}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                        </td></tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </Fragment>
               ))}
-              {data.quick.length > 0 && (
+              {groups.length > 0 && (
                 <tr className="bg-slate-900 text-white font-bold">
-                  <td className={`${td} text-left`} colSpan={2}>TOTAL</td>
-                  {[0, 1, 2].map((i) => [(b) => b.n, (b) => b.im3, (b) => b.id3, (b) => b.total].map((pick, k) => <td key={i + "-" + k} className={td}>{sumQ((r) => pick(r.blok[i]))}</td>))}
-                  <td className={td}>{sumQ((r) => r.tIM3)}</td>
-                  <td className={td}>{sumQ((r) => r.t3ID)}</td>
-                  <td className={td}>{sumQ((r) => r.total)}</td>
+                  <td className={`${td} text-left`}>TOTAL</td>
+                  {grand.map((v, i) => <td key={i} className={td}>{v}</td>)}
                 </tr>
               )}
             </tbody>
           </table>
-          {data.quick.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada data untuk bulan ini.</p>}
+          {groups.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada data untuk bulan ini.</p>}
         </div>
       </div>
 
