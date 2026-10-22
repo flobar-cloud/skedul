@@ -799,22 +799,36 @@ export default function PapanKegiatan() {
       (snap) => { setActivities(snap.docs.map((d) => ({ ...d.data(), id: d.id }))); setReady(true); },
       (err) => { console.error(err); notify("Gagal memuat data kegiatan dari Firestore."); setReady(true); }
     );
-    const unsubReports = onSnapshot(
-      fullLoad ? collection(db, "rgeReports") : query(collection(db, "rgeReports"), where("Timestamp", ">=", windowStart.iso)),
-      (snap) => {
-        // Dedupe per MessageId (dokumen ganda bisa muncul kalau sinkron Sheet dijalankan berulang).
-        const byMsg = new Map(); const noMsg = [];
-        snap.docs.forEach((d) => {
-          const r = { ...d.data(), id: d.id };
-          const mid = String(r.MessageId || "").trim();
-          if (!mid) { noMsg.push(r); return; }
-          const prev = byMsg.get(mid);
-          if (!prev || (r.StatusLunas === true && prev.StatusLunas !== true)) byMsg.set(mid, r);
-        });
-        setRgeReports([...byMsg.values(), ...noMsg]); setReportsError("");
-      },
-      (err) => { console.error("Gagal memuat rgeReports:", err); setReportsError(String(err?.code || err?.message || err)); }
+    // Kolom Timestamp laporan bisa tersimpan sebagai TEKS ISO atau sebagai tipe Timestamp Firestore
+    // (tergantung node n8n yang menulis). Filter tanggal harus cocok dengan tipenya, jadi dua kueri
+    // dijalankan (teks & Timestamp) lalu digabung. Nilai Timestamp dinormalkan jadi teks ISO.
+    const bagian = { a: [], b: [] };
+    const publish = () => {
+      const byMsg = new Map(); const noMsg = [];
+      [...bagian.a, ...bagian.b].forEach((r) => {
+        const mid = String(r.MessageId || "").trim();
+        if (!mid) { noMsg.push(r); return; }
+        const prev = byMsg.get(mid);
+        if (!prev || (r.StatusLunas === true && prev.StatusLunas !== true)) byMsg.set(mid, r);
+      });
+      setRgeReports([...byMsg.values(), ...noMsg]); setReportsError("");
+    };
+    const mapDoc = (d) => {
+      const r = { ...d.data(), id: d.id };
+      if (r.Timestamp && typeof r.Timestamp.toDate === "function") r.Timestamp = r.Timestamp.toDate().toISOString();
+      return r;
+    };
+    const onErr = (err) => { console.error("Gagal memuat rgeReports:", err); setReportsError(String(err?.code || err?.message || err)); };
+    const colRep = collection(db, "rgeReports");
+    const unsubReportsA = onSnapshot(
+      fullLoad ? colRep : query(colRep, where("Timestamp", ">=", windowStart.iso)),
+      (snap) => { bagian.a = snap.docs.map(mapDoc); publish(); }, onErr
     );
+    const unsubReportsB = fullLoad ? null : onSnapshot(
+      query(colRep, where("Timestamp", ">=", new Date(windowStart.iso))),
+      (snap) => { bagian.b = snap.docs.map(mapDoc); publish(); }, onErr
+    );
+    const unsubReports = () => { unsubReportsA(); if (unsubReportsB) unsubReportsB(); };
     return () => { unsubActivities(); unsubReports(); };
   }, [fullLoad]);
 
