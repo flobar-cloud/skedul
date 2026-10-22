@@ -2342,13 +2342,23 @@ function addHasil(target, src) {
   HASIL_FIELDS.forEach(([k]) => { target[k] += Number(src?.[k]) || 0; });
   return target;
 }
+// Jumlah unit FWA pada satu postingan grup WA kategori "fwa": tiap "Msisdn : ... | Imei : ..." = 1 unit.
+// Dihitung dari teks caption (bisa >1 pasangan per postingan); fallback 1 kalau kolom Msisdn terisi.
+function fwaUnitsFromReport(r) {
+  if (String(r.Kategori ?? r.category ?? "").toLowerCase() !== "fwa") return 0;
+  const raw = String(r.RawCaption ?? r.rawCaption ?? "");
+  const n = (raw.match(/msisdn\s*:\s*\d+/gi) || []).length;
+  if (n > 0) return n;
+  return String(r.Msisdn ?? r.msisdn ?? "").trim() ? 1 : 0;
+}
 function hasilFromReport(r) {
   let items = r.PosmItems ?? r.posmItems ?? {};
   if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
   const g = (k) => Number(items?.[k]) || 0;
   return {
     spIM3: Number(r.SP_IM3 ?? r.spIM3) || 0, sp3ID: Number(r.SP_3ID ?? r.sp3ID) || 0,
-    hifi: Number(r.FWA ?? r.fwa) || 0, poster: g("poster"), shopblind: g("shopblind"), vinil: 0,
+    // Hifi/FWA HANYA dari laporan kategori "fwa" (grup FWA terpisah). Angka "fwa:" di laporan DTU/Desa/School/Event diabaikan.
+    hifi: String(r.Kategori ?? r.category ?? "").toLowerCase() === "fwa" ? Math.max(Number(r.FWA ?? r.fwa) || 0, fwaUnitsFromReport(r)) : 0, poster: g("poster"), shopblind: g("shopblind"), vinil: 0,
     spanduk: g("spanduk"), rontek: g("rontek") + g("rountag") + g("roundtag"), outlet: g("outlet"), wall: g("wall"),
   };
 }
@@ -2916,7 +2926,7 @@ function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilt
     const lain = Object.entries(r.perJenis).filter(([j]) => !JENIS_BLOK.includes(j) && j !== "FWA").reduce((a, [, v]) => ({ im3: a.im3 + v.hasil.spIM3, id3: a.id3 + v.hasil.sp3ID }), { im3: 0, id3: 0 });
     const tAct = blok.reduce((s, b) => s + b.n, 0);
     const tIM3 = blok.reduce((s, b) => s + b.im3, 0) + lain.im3, t3ID = blok.reduce((s, b) => s + b.id3, 0) + lain.id3;
-    return { key: r.key, name: r.name, branch: r.branch, blok, tAct, tIM3, t3ID, total: tIM3 + t3ID, entries: r.entries };
+    return { key: r.key, name: r.name, branch: r.branch, blok, fwa: g(r, "FWA").hasil.hifi || 0, tAct, tIM3, t3ID, total: tIM3 + t3ID, entries: r.entries };
   });
   const posm = rows.map((r) => {
     const x = g(r, "Branding");
@@ -2926,7 +2936,7 @@ function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilt
 }
 
 // 20 angka per baris: [DTU Act,IM3,3ID,Total] [Desa ...] [School ...] [Event ...] [Total Act,IM3,3ID,TOTAL SP]
-const kpiCells = (r) => [...r.blok.flatMap((b) => [b.n, b.im3, b.id3, b.total]), r.tAct, r.tIM3, r.t3ID, r.total];
+const kpiCells = (r) => [...r.blok.flatMap((b) => [b.n, b.im3, b.id3, b.total]), r.fwa, r.tAct, r.tIM3, r.t3ID, r.total];
 // Kelompokkan per branch (urut sesuai urutan wilayah), tiap kelompok punya baris subtotal.
 function kpiGroupByBranch(quick) {
   const groups = []; const gm = new Map();
@@ -2936,17 +2946,17 @@ function kpiGroupByBranch(quick) {
     gm.get(b).rows.push(r);
   });
   groups.sort((x, y) => branchRank(x.branch === "Tanpa Branch" ? "" : x.branch) - branchRank(y.branch === "Tanpa Branch" ? "" : y.branch) || x.branch.localeCompare(y.branch));
-  groups.forEach((grp) => { grp.sum = Array(20).fill(0); grp.rows.forEach((r) => kpiCells(r).forEach((v, i) => { grp.sum[i] += v; })); });
+  groups.forEach((grp) => { grp.sum = Array(21).fill(0); grp.rows.forEach((r) => kpiCells(r).forEach((v, i) => { grp.sum[i] += v; })); });
   return groups;
 }
 
 function exportKpiQuickCountExcel(data, cursor, branchFilter) {
   const monthKey = monthKeyOf(cursor);
-  const h1 = ["Nama RGE", ...["DTU", "Desa", "School", "Event"].flatMap((l) => [`${l} Activity`, `${l} IM3`, `${l} 3ID`, `${l} Total`]), "Total Activity", "Total IM3", "Total 3ID", "TOTAL SP"];
+  const h1 = ["Nama RGE", ...["DTU", "Desa", "School", "Event"].flatMap((l) => [`${l} Activity`, `${l} IM3`, `${l} 3ID`, `${l} Total`]), "FWA", "Total Activity", "Total IM3", "Total 3ID", "TOTAL SP"];
   const groups = kpiGroupByBranch(data.quick);
   const body1 = [];
   groups.forEach((grp) => { body1.push([grp.branch, ...grp.sum]); grp.rows.forEach((r) => body1.push(["    " + r.name, ...kpiCells(r)])); });
-  const grand = Array(20).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
+  const grand = Array(21).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
   const ws1 = XLSX.utils.aoa_to_sheet([h1, ...body1, ["TOTAL", ...grand]]);
   ws1["!cols"] = h1.map((h, i) => ({ wch: i === 0 ? 30 : 12 }));
   const h2 = ["Branch", "RGE", "Jml Laporan", ...KPI_POSM_ITEMS.map(([, l]) => l), "Vinil"];
@@ -3106,7 +3116,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
   const td = "border border-slate-200 px-2 py-1.5 text-center";
   const num = (v) => (v ? v : <span className="text-slate-300">0</span>);
   const groups = kpiGroupByBranch(data.quick);
-  const grand = Array(20).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
+  const grand = Array(21).fill(0); groups.forEach((grp) => grp.sum.forEach((v, i) => { grand[i] += v; }));
   const posmTotal = (k) => data.posm.reduce((s, r) => s + (r.items[k] || 0), 0);
   const adaVinil = data.posm.some((r) => r.items.vinil > 0);
   const BLOK = [["DTU", "bg-indigo-50 text-indigo-700"], ["Desa", "bg-emerald-50 text-emerald-700"], ["School", "bg-amber-50 text-amber-700"], ["Event", "bg-violet-50 text-violet-700"]];
@@ -3133,13 +3143,14 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
       {/* Tabel 1: DTU / Desa / School (+ total) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
         <h3 className="font-bold text-slate-900 mb-1">Penjualan SP per RGE — DTU, Desa, School, Event</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Activity = jumlah kegiatan tercatat. Total = IM3 + 3ID. TOTAL SP = IM3 + 3ID dari semua kegiatan selain FWA. Baris tebal per branch = subtotal. Klik nama RGE untuk melihat rincian laporan yang dihitung.</p>
+        <p className="text-[11px] text-slate-400 mb-3">Activity = jumlah kegiatan tercatat. Total = IM3 + 3ID. Kolom FWA = jumlah unit FWA (Msisdn/IMEI) yang dilaporkan, TIDAK ikut TOTAL SP. Baris tebal per branch = subtotal. Klik nama RGE untuk melihat rincian laporan yang dihitung.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse min-w-[1400px]">
             <thead>
               <tr className="bg-slate-50 text-slate-500">
                 <th rowSpan={2} className={`${th} text-left min-w-[190px]`}>Nama RGE</th>
                 {BLOK.map(([l, c]) => <th key={l} colSpan={4} className={`${th} ${c}`}>{l}</th>)}
+                <th rowSpan={2} className={`${th} bg-rose-50 text-rose-700`}>FWA</th>
                 <th colSpan={4} className={`${th} bg-slate-200 text-slate-800`}>Total (DTU + Desa + School + Event)</th>
               </tr>
               <tr className="bg-slate-50 text-slate-500">
@@ -3157,10 +3168,10 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
                     <Fragment key={r.key}>
                       <tr className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpenKey(openKey === r.key ? null : r.key)}>
                         <td className={`${td} text-left text-slate-700`}><span className="text-slate-300 mr-1">{openKey === r.key ? "▾" : "▸"}</span>{r.name}</td>
-                        {kpiCells(r).map((v, i) => <td key={i} className={`${td} ${i === 19 ? "font-bold bg-slate-100" : ""}`}>{num(v)}</td>)}
+                        {kpiCells(r).map((v, i) => <td key={i} className={`${td} ${i === 20 ? "font-bold bg-slate-100" : ""}`}>{num(v)}</td>)}
                       </tr>
                       {openKey === r.key && (
-                        <tr><td colSpan={21} className="border border-slate-200 bg-slate-50/70 p-3">
+                        <tr><td colSpan={22} className="border border-slate-200 bg-slate-50/70 p-3">
                           {r.entries.length === 0 ? <p className="text-[11px] text-slate-400 italic">Belum ada laporan tercatat bulan ini untuk {r.name}.</p> : (
                             <table className="w-full text-[11px] border-collapse">
                               <thead><tr className="text-slate-500 text-left"><th className="px-2 py-1">Tanggal</th><th className="px-2 py-1">Jenis</th><th className="px-2 py-1">Kegiatan / Lokasi</th><th className="px-2 py-1">Sumber</th><th className="px-2 py-1 text-center">IM3</th><th className="px-2 py-1 text-center">3ID</th><th className="px-2 py-1">Dihitung di tabel?</th></tr></thead>
@@ -3172,7 +3183,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
                                   return (
                                     <tr key={i} className={ikutTotal ? "" : "text-slate-400"}>
                                       <td className="px-2 py-1">{e.tanggal}</td><td className="px-2 py-1">{e.jenis}</td><td className="px-2 py-1">{e.judul || "—"}</td><td className="px-2 py-1">{e.sumber}</td>
-                                      <td className="px-2 py-1 text-center">{e.hasil.spIM3}</td><td className="px-2 py-1 text-center">{e.hasil.sp3ID}</td><td className="px-2 py-1">{hit ? "Ya" : e.jenis === "FWA" ? "Tidak (FWA tidak dihitung)" : ikutTotal ? "Hanya masuk TOTAL SP" : "Tidak (tidak ada angka IM3/3ID)"}</td>
+                                      <td className="px-2 py-1 text-center">{e.hasil.spIM3}</td><td className="px-2 py-1 text-center">{e.hasil.sp3ID}</td><td className="px-2 py-1">{hit ? "Ya" : e.jenis === "FWA" ? `Masuk kolom FWA (${e.hasil.hifi} unit), bukan TOTAL SP` : ikutTotal ? "Hanya masuk TOTAL SP" : "Tidak (tidak ada angka IM3/3ID)"}</td>
                                     </tr>
                                   );
                                 })}
