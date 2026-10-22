@@ -12,7 +12,7 @@ import {
 import * as XLSX from "xlsx"; // npm install xlsx -- dipakai untuk export Rekap KPI ke Excel
 import { db } from "./firebase.js";
 import {
-  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, arrayUnion, setDoc
+  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, arrayUnion, setDoc, query, where
 } from "firebase/firestore";
 
 // ---------- Design tokens ----------
@@ -781,13 +781,26 @@ export default function PapanKegiatan() {
       (snap) => setMembers(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
       (err) => { console.error(err); notify("Gagal memuat data anggota dari Firestore."); }
     );
+    const unsubTargets = onSnapshot(
+      collection(db, "kpiTargets"),
+      (snap) => setKpiTargets(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
+      (err) => console.error("Gagal memuat kpiTargets:", err)
+    );
+    return () => { unsubMembers(); unsubTargets(); };
+  }, []);
+
+  // HEMAT KUOTA BACA FIRESTORE: kegiatan & laporan WA hanya dibaca sejak awal BULAN LALU (default).
+  // Tombol "Muat semua riwayat" di bagian atas halaman membaca semuanya (hanya kalau perlu).
+  const [fullLoad, setFullLoad] = useState(false);
+  const windowStart = (() => { const t = new Date(); const d = new Date(t.getFullYear(), t.getMonth() - 1, 1); return { date: dateKey(d.getFullYear(), d.getMonth(), 1), iso: new Date(d.getFullYear(), d.getMonth(), 1).toISOString() }; })();
+  useEffect(() => {
     const unsubActivities = onSnapshot(
-      collection(db, "activities"),
+      fullLoad ? collection(db, "activities") : query(collection(db, "activities"), where("date", ">=", windowStart.date)),
       (snap) => { setActivities(snap.docs.map((d) => ({ ...d.data(), id: d.id }))); setReady(true); },
       (err) => { console.error(err); notify("Gagal memuat data kegiatan dari Firestore."); setReady(true); }
     );
     const unsubReports = onSnapshot(
-      collection(db, "rgeReports"),
+      fullLoad ? collection(db, "rgeReports") : query(collection(db, "rgeReports"), where("Timestamp", ">=", windowStart.iso)),
       (snap) => {
         // Dedupe per MessageId (dokumen ganda bisa muncul kalau sinkron Sheet dijalankan berulang).
         const byMsg = new Map(); const noMsg = [];
@@ -802,13 +815,9 @@ export default function PapanKegiatan() {
       },
       (err) => { console.error("Gagal memuat rgeReports:", err); setReportsError(String(err?.code || err?.message || err)); }
     );
-    const unsubTargets = onSnapshot(
-      collection(db, "kpiTargets"),
-      (snap) => setKpiTargets(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
-      (err) => console.error("Gagal memuat kpiTargets:", err)
-    );
-    return () => { unsubMembers(); unsubActivities(); unsubReports(); unsubTargets(); };
-  }, []);
+    return () => { unsubActivities(); unsubReports(); };
+  }, [fullLoad]);
+
 
   // Simpan/update target KPI bulanan 1 RGE. Doc id dibuat deterministik (memberId_bulan) supaya
   // simpan ulang di bulan yang sama otomatis nge-update, bukan bikin dokumen baru.
@@ -1027,6 +1036,17 @@ export default function PapanKegiatan() {
         />
 
         <main className="flex-1 w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {!fullLoad ? (
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              <span>Menampilkan data sejak awal bulan lalu (hemat kuota database).</span>
+              <button onClick={() => setFullLoad(true)} className="font-bold text-indigo-600 hover:underline">Muat semua riwayat</button>
+            </div>
+          ) : (
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <span>Memuat SEMUA riwayat data.</span>
+              <button onClick={() => setFullLoad(false)} className="font-bold text-indigo-600 hover:underline">Kembali ke data terbaru</button>
+            </div>
+          )}
           {mainTab === "dashboard" && (
             <Dashboard
               activities={activities} members={members} rgeReports={rgeReports} kpiTargets={kpiTargets}
