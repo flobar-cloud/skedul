@@ -2978,8 +2978,9 @@ const KPI_POSM_ITEMS = [
 ];
 // Stok terbaru per MC: laporan "stok" yang paling baru untuk MC yang sama menggantikan yang lama.
 // Nama MC dari teks laporan (mis. "Nama MC Badung", "mc badnung") dicocokkan ke daftar resmi (MC_MASTER) -> "MC-BADUNG",
-// dan branch-nya diambil dari daftar resmi (bukan dari branch RGE pelapor). Nama yang tidak bisa dipastikan
-// (tidak dikenal / bisa berarti >1 MC) ditampilkan di kelompok "Perlu dicek" supaya tidak salah tebak.
+// Pengelompokan branch MENGIKUTI BRANCH RGE PENGIRIM (bukan tulisan nama MC): laporan dari RGE Bali Barat selalu masuk
+// kelompok Bali Barat. Daftar resmi hanya menyeragamkan nama; nama yang tidak cocok dibiarkan apa adanya (diberi tanda
+// kecil di tabel). Branch dari daftar resmi baru dipakai kalau nomor pengirim belum terdaftar di Anggota Tim.
 function latestStokPerMC(rgeReports, members, branchFilter = null) {
   const latest = new Map();
   rgeReports.forEach((r) => {
@@ -3000,14 +3001,14 @@ function latestStokPerMC(rgeReports, members, branchFilter = null) {
     if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
     return {
       mc, matched: !!m.mc, opsi: m.options || [], raw, items: items || {},
-      rge: mem?.name || r.NamaRGE || r.Sender || "", branch: m.mc ? m.branch : rgeBranch,
+      rge: mem?.name || r.NamaRGE || r.Sender || "", branch: rgeBranch || (m.mc ? m.branch : ""), mcBranch: m.mc ? m.branch : "",
       order: m.mc ? MC_INDEX.find((c) => c.mc === m.mc).i : 9999,
       tanggal: reportDateLocal(r) || ts.slice(0, 10), foto: r.FotoURL || r.fotoUrl || "",
     };
   }).filter((x) => !branchFilter || x.branch === branchFilter);
-  return rows.sort((a, b) => (a.matched === b.matched ? 0 : a.matched ? -1 : 1) || branchRank(a.branch) - branchRank(b.branch) || a.order - b.order || a.mc.localeCompare(b.mc));
+  return rows.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || String(a.branch).toUpperCase().localeCompare(String(b.branch).toUpperCase()) || a.order - b.order || a.mc.localeCompare(b.mc));
 }
-// Kelompokkan baris stok per branch (daftar resmi); yang tidak pasti masuk kelompok "Perlu dicek" di paling bawah.
+// Kelompokkan baris stok per branch RGE pengirim (urutan branch mengikuti BRANCH_ORDER aplikasi).
 // semuaMC = true -> MC resmi yang belum pernah lapor stok ikut ditampilkan (kosong) supaya kelihatan siapa yang belum lapor.
 function groupStokByBranch(stokRows, semuaMC, branchFilter) {
   const rows = [...stokRows];
@@ -3015,14 +3016,14 @@ function groupStokByBranch(stokRows, semuaMC, branchFilter) {
     const ada = new Set(stokRows.filter((r) => r.matched).map((r) => r.mc));
     MC_INDEX.forEach((c) => {
       if (ada.has(c.mc) || (branchFilter && c.branch !== branchFilter)) return;
-      rows.push({ mc: c.mc, matched: true, opsi: [], raw: "", items: {}, rge: "", branch: c.branch, order: c.i, tanggal: "", foto: "", belumLapor: true });
+      rows.push({ mc: c.mc, matched: true, opsi: [], raw: "", items: {}, rge: "", branch: c.branch, mcBranch: c.branch, order: c.i, tanggal: "", foto: "", belumLapor: true });
     });
   }
-  rows.sort((a, b) => (a.matched === b.matched ? 0 : a.matched ? -1 : 1) || branchRank(a.branch) - branchRank(b.branch) || a.order - b.order || a.mc.localeCompare(b.mc));
+  rows.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || String(a.branch).toUpperCase().localeCompare(String(b.branch).toUpperCase()) || a.order - b.order || a.mc.localeCompare(b.mc));
   const groups = []; const gm = new Map();
   rows.forEach((r) => {
-    const k = r.matched ? r.branch : "__cek";
-    if (!gm.has(k)) { const g = { key: k, title: r.matched ? r.branch : "Perlu dicek — nama MC belum cocok dengan daftar resmi", rows: [] }; gm.set(k, g); groups.push(g); }
+    const k = String(r.branch || "").trim().toUpperCase() || "__none";
+    if (!gm.has(k)) { const g = { key: k, title: r.branch ? r.branch : "Tanpa branch — nomor pengirim belum terdaftar di Anggota Tim", rows: [] }; gm.set(k, g); groups.push(g); }
     gm.get(k).rows.push(r);
   });
   return groups;
@@ -3385,7 +3386,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
           <h3 className="font-bold text-slate-900">Stok per MC</h3>
           <label className="text-xs text-slate-600 flex items-center gap-1.5"><input type="checkbox" checked={stokSemuaMC} onChange={(e) => setStokSemuaMC(e.target.checked)} /> Tampilkan semua MC (termasuk yang belum lapor)</label>
         </div>
-        <p className="text-[11px] text-slate-400 mb-3">Stok terbaru dari laporan "stok" di grup WhatsApp, dikelompokkan per branch. Nama MC dari laporan otomatis disamakan dengan daftar resmi (mis. "Nama MC Badung" → MC-BADUNG); yang tidak cocok dibiarkan apa adanya di kelompok "Perlu dicek" dan bisa dikoreksi di Google Sheet. Laporan baru untuk MC yang sama menggantikan angka sebelumnya (tidak dijumlahkan). Angka merah = stok habis (0).</p>
+        <p className="text-[11px] text-slate-400 mb-3">Stok terbaru dari laporan "stok" di grup WhatsApp, dikelompokkan menurut branch RGE pengirim. Nama MC dari laporan otomatis disamakan dengan daftar resmi (mis. "Nama MC Badung" → MC-BADUNG); yang tidak cocok dibiarkan apa adanya (tanda kuning) dan bisa dikoreksi di Google Sheet. Laporan baru untuk MC yang sama menggantikan angka sebelumnya (tidak dijumlahkan). Angka merah = stok habis (0).</p>
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse min-w-[860px]">
             <thead>
@@ -3397,8 +3398,8 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
             <tbody>
               {groupStokByBranch(data.stok, stokSemuaMC, branchFilter || null).map((g) => (
                 <Fragment key={g.key}>
-                  <tr className={g.key === "__cek" ? "bg-amber-50" : "bg-slate-100"}>
-                    <td colSpan={3 + KPI_STOK_ITEMS.length} className={`border border-slate-200 px-2 py-1.5 text-left font-bold ${g.key === "__cek" ? "text-amber-800" : "text-slate-800"}`}>{g.title}</td>
+                  <tr className={g.key === "__none" ? "bg-amber-50" : "bg-slate-100"}>
+                    <td colSpan={3 + KPI_STOK_ITEMS.length} className={`border border-slate-200 px-2 py-1.5 text-left font-bold ${g.key === "__none" ? "text-amber-800" : "text-slate-800"}`}>{g.title}</td>
                   </tr>
                   {g.rows.map((r) => (
                     <tr key={r.mc} className={r.belumLapor ? "text-slate-400" : "hover:bg-slate-50"}>
@@ -3406,8 +3407,11 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
                         <span className="pl-2">{r.foto ? <a href={r.foto} target="_blank" rel="noreferrer" className="hover:underline">{r.mc}</a> : r.mc}</span>
                         {!r.matched && (
                           <div className="pl-2 text-[10px] font-normal text-amber-700">
-                            {r.opsi.length ? `mungkin: ${r.opsi.join(" / ")} · ` : "tidak ada di daftar resmi · "}RGE branch {r.branch || "—"} · bisa dikoreksi di Google Sheet
+                            nama MC belum cocok dengan daftar resmi{r.opsi.length ? ` (mungkin: ${r.opsi.join(" / ")})` : ""} · bisa dikoreksi di Google Sheet
                           </div>
+                        )}
+                        {r.matched && r.mcBranch && r.branch && r.mcBranch.toUpperCase() !== String(r.branch).toUpperCase() && (
+                          <div className="pl-2 text-[10px] font-normal text-slate-400">MC resmi branch {r.mcBranch}</div>
                         )}
                       </td>
                       <td className={`${td} text-left`}>{r.rge}</td>
