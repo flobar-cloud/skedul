@@ -806,6 +806,7 @@ export default function PapanKegiatan() {
     const publish = () => {
       const byMsg = new Map(); const noMsg = [];
       [...bagian.a, ...bagian.b].forEach((r) => {
+        if (r.DihapusDariSheet === true) return; // ditandai oleh workflow n8n 'Sinkron Hapus Sheet -> Web' (baris sudah dihapus di Google Sheet)
         const mid = String(r.MessageId || "").trim();
         if (!mid) { noMsg.push(r); return; }
         const prev = byMsg.get(mid);
@@ -949,6 +950,22 @@ export default function PapanKegiatan() {
       await updateDoc(doc(db, "activities", id), finalPatch);
     }
     catch (e) { console.error(e); notify("Gagal memperbarui kegiatan."); }
+  }
+  // Hapus 1 laporan WA (dokumen rgeReports) dari web. Perlu Firestore Rules yang mengizinkan delete pada rgeReports.
+  // Catatan: ini TIDAK menghapus baris di Google Sheet -- hapus juga barisnya di Sheet supaya tetap konsisten.
+  async function deleteReport(id) {
+    const cleanId = String(id || "").trim();
+    if (!cleanId) { notify("Gagal menghapus: ID laporan tidak valid."); return false; }
+    try {
+      await deleteDoc(doc(db, "rgeReports", cleanId));
+      notify("Laporan WA dihapus dari web.");
+      return true;
+    } catch (e) {
+      console.error("Gagal menghapus laporan WA", cleanId, e);
+      if (e?.code === "not-found") return true;
+      notify(e?.code === "permission-denied" ? "Gagal menghapus: Firestore Rules belum mengizinkan delete pada rgeReports." : "Gagal menghapus laporan WA.");
+      return false;
+    }
   }
   async function deleteActivity(id) {
     // Beberapa kegiatan lama (mis. yang masuk lewat n8n/WhatsApp) kadang punya id dengan spasi
@@ -1097,7 +1114,7 @@ export default function PapanKegiatan() {
                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Pencapaian KPI</h1>
                 <p className="text-sm text-slate-500 mt-1">Target vs pencapaian bulanan per RGE.</p>
               </div>
-              <RekapKPI members={members} rgeReports={rgeReports} reportsError={reportsError} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} activities={activities} onOpenActivity={(id) => setDetailId(id)} />
+              <RekapKPI members={members} rgeReports={rgeReports} reportsError={reportsError} kpiTargets={kpiTargets} onSaveTarget={saveKpiTarget} activities={activities} onDeleteReport={deleteReport} onOpenActivity={(id) => setDetailId(id)} />
             </div>
           )}
 
@@ -2460,7 +2477,7 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
       tanggal: a.date, memberId: a.assignedMemberId, rge: mem?.name || "(tanpa PIC)", branch: mem?.branch || "",
       jenis: normalizeJenisKegiatan(a.jenisKegiatan), judul: a.title || "", hasil,
       sumber: reports.length && nFotoWeb ? "Web + WA" : reports.length ? "WA" : "Web",
-      nFoto: nFotoWeb + links.length, links, fromJadwal: true,
+      nFoto: nFotoWeb + links.length, links, fromJadwal: true, reportIds: reports.map((r) => r.id).filter(Boolean),
     });
   });
   standalone.forEach((r) => {
@@ -2475,7 +2492,7 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
     entries.push({
       tanggal: date, memberId: mem?.id || null, rge: mem?.name || r.NamaRGE || r.Sender || "(tidak dikenal)", branch: branch === "TIDAK TERDAFTAR" ? "" : branch,
       jenis: KATEGORI_KE_JENIS[String(r.Kategori || r.category || "").toLowerCase()], judul: reportDetailText(r),
-      hasil: hasilFromReport(r), sumber: "WA", nFoto: url ? 1 : 0, links: url ? [url] : [],
+      hasil: hasilFromReport(r), sumber: "WA", nFoto: url ? 1 : 0, links: url ? [url] : [], reportIds: r.id ? [r.id] : [],
     });
   });
   entries.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.rge.localeCompare(b.rge));
@@ -3000,7 +3017,7 @@ function bandingkanSheetDenganWeb(sheetRows, rgeReports, abaikanTidakTerdaftar =
   const webMap = new Map();
   rgeReports.forEach((r) => { const id = String(r.MessageId || "").trim(); if (id) webMap.set(id, r); });
   const num = (v) => Number(String(v ?? "").replace(",", ".")) || 0;
-  const out = { totalSheet: 0, sama: 0, diabaikan: 0, hilang: [], beda: [], hanyaWeb: 0 };
+  const out = { totalSheet: 0, sama: 0, diabaikan: 0, hilang: [], beda: [], hanyaWeb: 0, hanyaWebList: [] };
   const seen = new Set();
   sheetRows.forEach((s) => {
     const mid = String(s.MessageId || "").trim();
@@ -3020,11 +3037,15 @@ function bandingkanSheetDenganWeb(sheetRows, rgeReports, abaikanTidakTerdaftar =
     if (diffs.length) out.beda.push({ s, diffs }); else out.sama++;
   });
   const sheetIds = new Set(sheetRows.map((s) => String(s.MessageId || "").trim()));
-  webMap.forEach((_, id) => { if (!sheetIds.has(id)) out.hanyaWeb++; });
+  // Laporan yang lebih baru dari baris terakhir di file Sheet ditandai peringatan (bisa jadi masuk setelah file diunduh); tombol hapus tetap ada.
+  const tsSheet = sheetRows.map((s) => String(s.Timestamp || "")).filter(Boolean).sort();
+  const maxTs = tsSheet[tsSheet.length - 1] || "";
+  webMap.forEach((r, id) => { if (!sheetIds.has(id)) { out.hanyaWeb++; out.hanyaWebList.push({ r, baru: !!maxTs && String(r.Timestamp || "") > maxTs }); } });
+  out.hanyaWebList.sort((a, b) => String(a.r.Timestamp || "").localeCompare(String(b.r.Timestamp || "")));
   return out;
 }
 
-function CekSinkronPanel({ rgeReports, reportsError = "" }) {
+function CekSinkronPanel({ rgeReports, reportsError = "", onDeleteReport }) {
   const [hasil, setHasil] = useState(null);
   const [fileName, setFileName] = useState("");
   const [abaikan, setAbaikan] = useState(true);
@@ -3044,6 +3065,12 @@ function CekSinkronPanel({ rgeReports, reportsError = "" }) {
     } catch (ex) { console.error(ex); setErr("Gagal membaca file."); }
   }
   const hitung = (v) => { setAbaikan(v); if (rowsCache) setHasil(bandingkanSheetDenganWeb(rowsCache, rgeReports, v)); };
+  async function hapusDariWeb(r) {
+    const nama = r.NamaLokasi || r.NamaEvent || r.NamaDesa || r.NamaSekolah || r.Kategori || "";
+    if (!window.confirm(`Hapus laporan WA ini dari web?\n\n${String(r.Timestamp || "").slice(0, 16).replace("T", " ")} · ${r.NamaRGE || r.Sender || "-"} · ${r.Kategori} · ${nama}\n\nBaris ini tidak ada di file Sheet yang Anda unggah.`)) return;
+    const ok = await onDeleteReport?.(r.id);
+    if (ok && rowsCache) setHasil(bandingkanSheetDenganWeb(rowsCache, rgeReports.filter((x) => x.id !== r.id), abaikan));
+  }
   const chip = (label, val, tone) => <div className={`rounded-lg border px-3 py-2 text-center ${tone}`}><div className="text-lg font-extrabold">{val}</div><div className="text-[10px] font-semibold">{label}</div></div>;
   return (
     <details className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
@@ -3069,7 +3096,25 @@ function CekSinkronPanel({ rgeReports, reportsError = "" }) {
             {chip("Angka / data beda", hasil.beda.length, hasil.beda.length ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-400")}
             {chip("Diabaikan", hasil.diabaikan, "border-slate-200 text-slate-400")}
           </div>
-          {hasil.hanyaWeb > 0 && <p className="text-[11px] text-slate-400">{hasil.hanyaWeb} laporan ada di web tetapi tidak ada di file Sheet ini (mis. masuk setelah file diunduh).</p>}
+          {hasil.hanyaWeb > 0 && <p className="text-[11px] text-slate-400">{hasil.hanyaWeb} laporan ada di web tetapi tidak ada di file Sheet ini (mis. masuk setelah file diunduh, atau barisnya sudah Anda hapus di Sheet).</p>}
+          {hasil.hanyaWebList.length > 0 && (
+            <div className="overflow-x-auto max-h-72 overflow-y-auto border border-amber-200 rounded-lg">
+              <table className="w-full text-[11px] border-collapse">
+                <thead className="sticky top-0 bg-amber-50"><tr className="text-left text-amber-800"><th className="px-2 py-1.5">Waktu</th><th className="px-2 py-1.5">RGE</th><th className="px-2 py-1.5">Jenis</th><th className="px-2 py-1.5">Lokasi / Angka</th><th className="px-2 py-1.5">Aksi</th></tr></thead>
+                <tbody>
+                  {hasil.hanyaWebList.slice(0, 150).map(({ r, baru }) => (
+                    <tr key={r.id} className="border-t border-amber-100">
+                      <td className="px-2 py-1">{String(r.Timestamp || "").slice(0, 16).replace("T", " ")}</td>
+                      <td className="px-2 py-1">{r.NamaRGE || r.Sender || "-"}</td>
+                      <td className="px-2 py-1">{r.Kategori}</td>
+                      <td className="px-2 py-1">{r.NamaLokasi || r.NamaEvent || r.NamaDesa || r.NamaSekolah || "—"} · IM3 {Number(r.SP_IM3) || 0} · 3ID {Number(r.SP_3ID) || 0}</td>
+                      <td className="px-2 py-1 whitespace-nowrap"><button onClick={() => hapusDariWeb(r)} className="text-[10px] font-semibold text-rose-600 border border-rose-200 rounded px-1.5 py-0.5 hover:bg-rose-50">Hapus dari web</button>{baru && <span className="ml-1.5 text-[10px] text-amber-700">lebih baru dari isi file — pastikan bukan laporan yang masuk setelah file diunduh</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {hasil.hilang.length === 0 && hasil.beda.length === 0 && <p className="text-sm font-semibold text-emerald-700">✅ Semua baris Sheet sudah sama dengan data web.</p>}
           {(hasil.hilang.length > 0 || hasil.beda.length > 0) && (
             <>
@@ -3095,10 +3140,15 @@ function CekSinkronPanel({ rgeReports, reportsError = "" }) {
   );
 }
 
-function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onOpenActivity }) {
+function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onOpenActivity, onDeleteReport }) {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branchFilter, setBranchFilter] = useState("");
   const [openKey, setOpenKey] = useState(null); // baris RGE yang rinciannya sedang dibuka
+  async function hapusLaporan(e) {
+    const n = e.reportIds.length;
+    if (!window.confirm(`Hapus ${n} laporan WA "${e.judul || e.jenis}" (${e.tanggal}) dari web?\n\nAngkanya tidak akan terhitung lagi di KPI. Hapus juga barisnya di Google Sheet REKAP RGE supaya tetap konsisten.`)) return;
+    for (const id of e.reportIds) await onDeleteReport?.(id);
+  }
   const monthKey = monthKeyOf(cursor);
   const branches = sortBranches(Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))));
   const data = kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter: branchFilter || null });
@@ -3174,7 +3224,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
                         <tr><td colSpan={22} className="border border-slate-200 bg-slate-50/70 p-3">
                           {r.entries.length === 0 ? <p className="text-[11px] text-slate-400 italic">Belum ada laporan tercatat bulan ini untuk {r.name}.</p> : (
                             <table className="w-full text-[11px] border-collapse">
-                              <thead><tr className="text-slate-500 text-left"><th className="px-2 py-1">Tanggal</th><th className="px-2 py-1">Jenis</th><th className="px-2 py-1">Kegiatan / Lokasi</th><th className="px-2 py-1">Sumber</th><th className="px-2 py-1 text-center">IM3</th><th className="px-2 py-1 text-center">3ID</th><th className="px-2 py-1">Dihitung di tabel?</th></tr></thead>
+                              <thead><tr className="text-slate-500 text-left"><th className="px-2 py-1">Tanggal</th><th className="px-2 py-1">Jenis</th><th className="px-2 py-1">Kegiatan / Lokasi</th><th className="px-2 py-1">Sumber</th><th className="px-2 py-1 text-center">IM3</th><th className="px-2 py-1 text-center">3ID</th><th className="px-2 py-1">Dihitung di tabel?</th><th className="px-2 py-1">Aksi</th></tr></thead>
                               <tbody>
                                 {r.entries.map((e, i) => {
                                   const blokIni = ["DTU", "Attack Desa", "Attack School", "Event"].includes(e.jenis);
@@ -3183,7 +3233,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
                                   return (
                                     <tr key={i} className={ikutTotal ? "" : "text-slate-400"}>
                                       <td className="px-2 py-1">{e.tanggal}</td><td className="px-2 py-1">{e.jenis}</td><td className="px-2 py-1">{e.judul || "—"}</td><td className="px-2 py-1">{e.sumber}</td>
-                                      <td className="px-2 py-1 text-center">{e.hasil.spIM3}</td><td className="px-2 py-1 text-center">{e.hasil.sp3ID}</td><td className="px-2 py-1">{hit ? "Ya" : e.jenis === "FWA" ? `Masuk kolom FWA (${e.hasil.hifi} unit), bukan TOTAL SP` : ikutTotal ? "Hanya masuk TOTAL SP" : "Tidak (tidak ada angka IM3/3ID)"}</td>
+                                      <td className="px-2 py-1 text-center">{e.hasil.spIM3}</td><td className="px-2 py-1 text-center">{e.hasil.sp3ID}</td><td className="px-2 py-1">{hit ? "Ya" : e.jenis === "FWA" ? `Masuk kolom FWA (${e.hasil.hifi} unit), bukan TOTAL SP` : ikutTotal ? "Hanya masuk TOTAL SP" : "Tidak (tidak ada angka IM3/3ID)"}</td><td className="px-2 py-1">{e.reportIds?.length ? <button onClick={(ev) => { ev.stopPropagation(); hapusLaporan(e); }} className="text-[10px] font-semibold text-rose-600 border border-rose-200 rounded px-1.5 py-0.5 hover:bg-rose-50">Hapus laporan WA</button> : null}</td>
                                     </tr>
                                   );
                                 })}
@@ -3275,7 +3325,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
         </div>
       </div>
 
-      <CekSinkronPanel rgeReports={rgeReports} reportsError={reportsError} />
+      <CekSinkronPanel rgeReports={rgeReports} reportsError={reportsError} onDeleteReport={onDeleteReport} />
 
       {/* Req Branding (SLA) -- dipertahankan dari halaman lama */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
