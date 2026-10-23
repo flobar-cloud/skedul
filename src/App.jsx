@@ -2886,6 +2886,89 @@ function TargetKPIModal({ member, monthKey, target, onClose, onSave }) {
 // Menggantikan halaman target-vs-pencapaian lama (komponen lama disimpan di bawah sebagai
 // RekapKPITargetLama, tidak dipakai). Angka berasal dari buildRekapBulanan(), jadi sama persis dengan
 // export "Rekap Excel" di menu Laporan & Rekap.
+// ---------- Daftar MC resmi per branch + pencocokan nama MC dari teks laporan ----------
+// Urutan = urutan di daftar resmi (dipakai untuk mengurutkan tabel). Tambah/ubah MC cukup di sini.
+const MC_MASTER = [
+  ["BALI BARAT", "MC-BADUNG"], ["BALI BARAT", "MC-BULELENG BARAT"], ["BALI BARAT", "MC-BULELENG TIMUR"], ["BALI BARAT", "MC-JEMBRANA"],
+  ["BALI BARAT", "MC-KUTA"], ["BALI BARAT", "MC-KUTA UTARA"], ["BALI BARAT", "MC-TABANAN BARAT"], ["BALI BARAT", "MC-TABANAN KOTA"],
+  ["BALI TIMUR", "MC-BANGLI"], ["BALI TIMUR", "MC-DENBAR"], ["BALI TIMUR", "MC-DENSEL"], ["BALI TIMUR", "MC-DENTIM"], ["BALI TIMUR", "MC-DENUT"],
+  ["BALI TIMUR", "MC-GIANYAR SELATAN"], ["BALI TIMUR", "MC-GIANYAR UTARA"], ["BALI TIMUR", "MC-KARANGASEM BARAT"], ["BALI TIMUR", "MC-KARANGASEM TIMUR"], ["BALI TIMUR", "MC-KLUNGKUNG"],
+  ["FLORES BARAT", "MC-KOMODO"], ["FLORES BARAT", "MC-LEMBOR"], ["FLORES BARAT", "MC-MANGGARAI"], ["FLORES BARAT", "MC-MANGGARAI TIMUR"], ["FLORES BARAT", "MC-NGADA NAGEKEO"],
+  ["FLORES TIMUR", "MC-ADONARA LARANTUKA"], ["FLORES TIMUR", "MC-ALOK"], ["FLORES TIMUR", "MC-ALOR LEMBATA"], ["FLORES TIMUR", "MC-ENDE"], ["FLORES TIMUR", "MC-KEWAPANTE"],
+  ["LOMBOK BARAT", "MC-GERUNG LOBAR"], ["LOMBOK BARAT", "MC-KEDIRI LOBAR"], ["LOMBOK BARAT", "MC-LOMBOK UTARA"], ["LOMBOK BARAT", "MC-MATARAM BARAT"], ["LOMBOK BARAT", "MC-MATARAM TIMUR"],
+  ["LOMBOK TIMUR", "MC-BATUKLIANG"], ["LOMBOK TIMUR", "MC-MASBAGIK"], ["LOMBOK TIMUR", "MC-PRAYA"], ["LOMBOK TIMUR", "MC-PRINGABAYA"], ["LOMBOK TIMUR", "MC-SAKRA"], ["LOMBOK TIMUR", "MC-SELONG"],
+  ["SUMBA", "MC-KOTA WAINGAPU"], ["SUMBA", "MC-PAHUNGA LODU"], ["SUMBA", "MC-SUMBA BARAT"], ["SUMBA", "MC-SUMBA BARAT DAYA"],
+  ["SUMBAWA", "MC-ALAS BUER"], ["SUMBAWA", "MC-ASAKOTA"], ["SUMBAWA", "MC-DOMPU"], ["SUMBAWA", "MC-EMPANG LAPE"], ["SUMBAWA", "MC-MANGGELEWA"], ["SUMBAWA", "MC-MONTA BIMA"], ["SUMBAWA", "MC-MOYOHULU"], ["SUMBAWA", "MC-TALIWANG"],
+  ["TIMOR SELATAN", "MC-KOTA KUPANG"], ["TIMOR SELATAN", "MC-KUPANG BARAT"], ["TIMOR SELATAN", "MC-KUPANG TENGAH"], ["TIMOR SELATAN", "MC-ROTE NDAO"], ["TIMOR SELATAN", "MC-TIMOR TENGAH SELATAN"],
+  ["TIMOR UTARA", "MC-ATAMBUA"], ["TIMOR UTARA", "MC-BIBOKI"], ["TIMOR UTARA", "MC-KOTA KEFA"], ["TIMOR UTARA", "MC-MALAKA"],
+];
+// Singkatan/sebutan lain yang pasti merujuk ke SATU MC. Sebutan yang bisa berarti >1 MC (mis. "Sumba Timur",
+// "Timor Tengah Utara") sengaja TIDAK dimasukkan: akan tampil sebagai "perlu dicek" daripada ditebak.
+const MC_ALIAS = {
+  "denpasar barat": "MC-DENBAR", "denpasar selatan": "MC-DENSEL", "denpasar timur": "MC-DENTIM", "denpasar utara": "MC-DENUT",
+  "tts": "MC-TIMOR TENGAH SELATAN", "sbd": "MC-SUMBA BARAT DAYA", "waingapu": "MC-KOTA WAINGAPU", "kefa": "MC-KOTA KEFA", "kefamenanu": "MC-KOTA KEFA",
+  "larantuka": "MC-ADONARA LARANTUKA", "adonara": "MC-ADONARA LARANTUKA", "maumere": "MC-ALOK",
+};
+const mcKeyOf = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+const MC_INDEX = MC_MASTER.map(([branch, mc], i) => {
+  const nama = mc.replace(/^MC-/, "");
+  return { branch, mc, i, key: mcKeyOf(nama), tokens: nama.toLowerCase().split(/\s+/) };
+});
+function mcClean(raw) {
+  let t = String(raw || "").toLowerCase().replace(/[_\-:.,\/()]+/g, " ").replace(/\s+/g, " ").trim();
+  for (let n = 0; n < 3; n++) t = t.replace(/^(nama\s*mc|nama|mc)\b\s*/, "").trim(); // buang "Nama MC" / "MC" di depan
+  return t;
+}
+function mcLev(a, b) {
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+// Hasil: { mc, branch, via } kalau cocok; { mc: null, options: [...] } kalau ambigu; { mc: null, options: [] } kalau tidak dikenal.
+function matchMC(raw, branchHint) {
+  const cleaned = mcClean(raw);
+  if (!cleaned) return { mc: null, options: [], cleaned };
+  const hint = String(branchHint || "").toUpperCase();
+  const key = mcKeyOf(cleaned);
+  const hit = (c, via) => ({ mc: c.mc, branch: c.branch, via, cleaned });
+  const pick = (list, via) => {
+    if (list.length === 1) return hit(list[0], via);
+    const inBranch = hint ? list.filter((c) => c.branch === hint) : [];
+    if (inBranch.length === 1) return hit(inBranch[0], via);
+    return { mc: null, options: list.map((c) => c.mc), cleaned };
+  };
+  // 1) sama persis (abaikan spasi/tanda baca)
+  const exact = MC_INDEX.filter((c) => c.key === key); if (exact.length) return pick(exact, "exact");
+  // 2) singkatan/sebutan lain yang pasti
+  const al = MC_ALIAS[cleaned] || MC_ALIAS[key]; if (al) return hit(MC_INDEX.find((c) => c.mc === al), "alias");
+  // 3) urutan kata terbalik ("Kupang Kota" = "Kota Kupang")
+  const sorted = cleaned.split(" ").sort().join(" ");
+  const rev = MC_INDEX.filter((c) => [...c.tokens].sort().join(" ") === sorted); if (rev.length) return pick(rev, "urutan");
+  // 4) semua kata yang ditulis ada di satu MC saja ("Gerung" -> MC-GERUNG LOBAR; "Buleleng" -> ambigu BARAT/TIMUR)
+  const toks = cleaned.split(" ").filter((w) => w.length >= 3);
+  if (toks.length) {
+    const sub = MC_INDEX.filter((c) => toks.every((w) => c.tokens.includes(w)));
+    if (sub.length) return pick(sub, "sebagian");
+  }
+  // 5) salah ketik: jarak edit kecil, dan harus jelas lebih dekat dari yang lain
+  const maxD = key.length >= 12 ? 3 : key.length >= 7 ? 2 : key.length >= 4 ? 1 : 0;
+  if (maxD > 0) {
+    const sc = MC_INDEX.map((c) => ({ c, d: mcLev(key, c.key) })).sort((a, b) => a.d - b.d);
+    if (sc[0].d <= maxD) {
+      const best = sc.filter((x) => x.d === sc[0].d).map((x) => x.c);
+      return pick(best, "typo");
+    }
+  }
+  return { mc: null, options: [], cleaned };
+}
+// Yang tidak cocok / tidak pasti dibiarkan APA ADANYA (hanya spasi berlebih dirapikan).
+const mcDisplayName = (m, raw) => m.mc || String(raw || "").replace(/\s+/g, " ").trim();
+
 const KPI_STOK_ITEMS = [
   ["posterSpIM3", "Poster SP IM3"], ["posterSpTri", "Poster SP Tri"], ["posterRebuyIM3", "Poster Rebuy IM3"],
   ["posterRebuyTri", "Poster Rebuy Tri"], ["flagchainIM3", "Flagchain IM3"], ["flagchainTri", "Flagchain Tri"],
@@ -2893,26 +2976,56 @@ const KPI_STOK_ITEMS = [
 const KPI_POSM_ITEMS = [
   ["poster", "Poster"], ["spanduk", "Spanduk"], ["rontek", "Rountag"], ["shopblind", "Shopblind"], ["outlet", "Outlet"], ["wall", "Wall"],
 ];
-// Stok terbaru per MC: laporan "stok" yang paling baru untuk nama MC yang sama menggantikan yang lama.
+// Stok terbaru per MC: laporan "stok" yang paling baru untuk MC yang sama menggantikan yang lama.
+// Nama MC dari teks laporan (mis. "Nama MC Badung", "mc badnung") dicocokkan ke daftar resmi (MC_MASTER) -> "MC-BADUNG",
+// dan branch-nya diambil dari daftar resmi (bukan dari branch RGE pelapor). Nama yang tidak bisa dipastikan
+// (tidak dikenal / bisa berarti >1 MC) ditampilkan di kelompok "Perlu dicek" supaya tidak salah tebak.
 function latestStokPerMC(rgeReports, members, branchFilter = null) {
   const latest = new Map();
   rgeReports.forEach((r) => {
     if (String(r.Kategori || r.category || "").toLowerCase() !== "stok") return;
-    const mc = String(r.NamaLokasi || r.namaLokasi || "").trim();
-    if (!mc) return;
-    const key = mc.toLowerCase().replace(/\s+/g, " ");
+    const raw = String(r.NamaLokasi || r.namaLokasi || "").trim();
+    if (!raw) return;
+    const mem = resolveMemberForReport(r, members);
+    const rgeBranch = mem?.branch || (String(r.Branch || "") === "TIDAK TERDAFTAR" ? "" : r.Branch) || "";
+    const m = matchMC(raw, rgeBranch);
+    const mc = mcDisplayName(m, raw);
     const ts = String(r.Timestamp || r.receivedAt || r.timestamp || "");
-    const prev = latest.get(key);
-    if (!prev || ts > prev.ts) latest.set(key, { r, ts, mc });
+    const lkey = m.mc || "x:" + raw.toLowerCase().replace(/\s+/g, " "); // yang tidak cocok: dikelompokkan menurut teks aslinya
+    const prev = latest.get(lkey);
+    if (!prev || ts > prev.ts) latest.set(lkey, { r, ts, mc, m, raw, mem, rgeBranch });
   });
-  const rows = [...latest.values()].map(({ r, ts, mc }) => {
+  const rows = [...latest.values()].map(({ r, ts, mc, m, raw, mem, rgeBranch }) => {
     let items = r.PosmItems ?? r.posmItems ?? {};
     if (typeof items === "string") { try { items = JSON.parse(items || "{}"); } catch { items = {}; } }
-    const mem = resolveMemberForReport(r, members);
-    const branch = mem?.branch || (String(r.Branch || "") === "TIDAK TERDAFTAR" ? "" : r.Branch) || "";
-    return { mc, items: items || {}, rge: mem?.name || r.NamaRGE || r.Sender || "", branch, tanggal: reportDateLocal(r) || ts.slice(0, 10), foto: r.FotoURL || r.fotoUrl || "" };
+    return {
+      mc, matched: !!m.mc, opsi: m.options || [], raw, items: items || {},
+      rge: mem?.name || r.NamaRGE || r.Sender || "", branch: m.mc ? m.branch : rgeBranch,
+      order: m.mc ? MC_INDEX.find((c) => c.mc === m.mc).i : 9999,
+      tanggal: reportDateLocal(r) || ts.slice(0, 10), foto: r.FotoURL || r.fotoUrl || "",
+    };
   }).filter((x) => !branchFilter || x.branch === branchFilter);
-  return rows.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || a.branch.localeCompare(b.branch) || a.mc.localeCompare(b.mc));
+  return rows.sort((a, b) => (a.matched === b.matched ? 0 : a.matched ? -1 : 1) || branchRank(a.branch) - branchRank(b.branch) || a.order - b.order || a.mc.localeCompare(b.mc));
+}
+// Kelompokkan baris stok per branch (daftar resmi); yang tidak pasti masuk kelompok "Perlu dicek" di paling bawah.
+// semuaMC = true -> MC resmi yang belum pernah lapor stok ikut ditampilkan (kosong) supaya kelihatan siapa yang belum lapor.
+function groupStokByBranch(stokRows, semuaMC, branchFilter) {
+  const rows = [...stokRows];
+  if (semuaMC) {
+    const ada = new Set(stokRows.filter((r) => r.matched).map((r) => r.mc));
+    MC_INDEX.forEach((c) => {
+      if (ada.has(c.mc) || (branchFilter && c.branch !== branchFilter)) return;
+      rows.push({ mc: c.mc, matched: true, opsi: [], raw: "", items: {}, rge: "", branch: c.branch, order: c.i, tanggal: "", foto: "", belumLapor: true });
+    });
+  }
+  rows.sort((a, b) => (a.matched === b.matched ? 0 : a.matched ? -1 : 1) || branchRank(a.branch) - branchRank(b.branch) || a.order - b.order || a.mc.localeCompare(b.mc));
+  const groups = []; const gm = new Map();
+  rows.forEach((r) => {
+    const k = r.matched ? r.branch : "__cek";
+    if (!gm.has(k)) { const g = { key: k, title: r.matched ? r.branch : "Perlu dicek — nama MC belum cocok dengan daftar resmi", rows: [] }; gm.set(k, g); groups.push(g); }
+    gm.get(k).rows.push(r);
+  });
+  return groups;
 }
 
 function kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter }) {
@@ -3120,6 +3233,7 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
   const [cursor, setCursor] = useState(() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() }; });
   const [branchFilter, setBranchFilter] = useState("");
   const [openKey, setOpenKey] = useState(null); // baris RGE yang rinciannya sedang dibuka
+  const [stokSemuaMC, setStokSemuaMC] = useState(false); // tabel stok: tampilkan juga MC yang belum lapor
   const monthKey = monthKeyOf(cursor);
   const branches = sortBranches(Array.from(new Set(members.filter((m) => (m.posisi || "RGE") === "RGE" && m.branch).map((m) => m.branch))));
   const data = kpiQuickCountData({ activities, members, rgeReports, cursor, branchFilter: branchFilter || null });
@@ -3267,32 +3381,48 @@ function RekapKPI({ members, rgeReports, reportsError = "", activities = [], onO
 
       {/* Tabel 3: Stok MC */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-        <h3 className="font-bold text-slate-900 mb-1">Stok per MC</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Stok terbaru dari laporan "stok" di grup WhatsApp. Laporan baru untuk MC yang sama menggantikan angka sebelumnya (tidak dijumlahkan). Angka merah = stok habis (0).</p>
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+          <h3 className="font-bold text-slate-900">Stok per MC</h3>
+          <label className="text-xs text-slate-600 flex items-center gap-1.5"><input type="checkbox" checked={stokSemuaMC} onChange={(e) => setStokSemuaMC(e.target.checked)} /> Tampilkan semua MC (termasuk yang belum lapor)</label>
+        </div>
+        <p className="text-[11px] text-slate-400 mb-3">Stok terbaru dari laporan "stok" di grup WhatsApp, dikelompokkan per branch. Nama MC dari laporan otomatis disamakan dengan daftar resmi (mis. "Nama MC Badung" → MC-BADUNG); yang tidak cocok dibiarkan apa adanya di kelompok "Perlu dicek" dan bisa dikoreksi di Google Sheet. Laporan baru untuk MC yang sama menggantikan angka sebelumnya (tidak dijumlahkan). Angka merah = stok habis (0).</p>
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse min-w-[860px]">
             <thead>
               <tr className="bg-slate-50 text-slate-500">
-                <th className={`${th} text-left`}>Nama MC</th><th className={`${th} text-left`}>Branch</th><th className={`${th} text-left`}>RGE</th><th className={th}>Update</th>
+                <th className={`${th} text-left`}>Nama MC</th><th className={`${th} text-left`}>RGE</th><th className={th}>Update</th>
                 {KPI_STOK_ITEMS.map(([, l]) => <th key={l} className={th}>{l}</th>)}
               </tr>
             </thead>
             <tbody>
-              {data.stok.map((r) => (
-                <tr key={r.mc} className="hover:bg-slate-50">
-                  <td className={`${td} text-left font-semibold text-slate-700`}>{r.foto ? <a href={r.foto} target="_blank" rel="noreferrer" className="hover:underline">{r.mc}</a> : r.mc}</td>
-                  <td className={`${td} text-left text-slate-500`}>{r.branch || "—"}</td>
-                  <td className={`${td} text-left`}>{r.rge}</td>
-                  <td className={td}>{r.tanggal}</td>
-                  {KPI_STOK_ITEMS.map(([k]) => {
-                    const v = r.items[k];
-                    return <td key={k} className={`${td} ${v === 0 ? "text-rose-600 font-bold bg-rose-50" : ""}`}>{v === undefined ? <span className="text-slate-300">—</span> : v}</td>;
-                  })}
-                </tr>
+              {groupStokByBranch(data.stok, stokSemuaMC, branchFilter || null).map((g) => (
+                <Fragment key={g.key}>
+                  <tr className={g.key === "__cek" ? "bg-amber-50" : "bg-slate-100"}>
+                    <td colSpan={3 + KPI_STOK_ITEMS.length} className={`border border-slate-200 px-2 py-1.5 text-left font-bold ${g.key === "__cek" ? "text-amber-800" : "text-slate-800"}`}>{g.title}</td>
+                  </tr>
+                  {g.rows.map((r) => (
+                    <tr key={r.mc} className={r.belumLapor ? "text-slate-400" : "hover:bg-slate-50"}>
+                      <td className={`${td} text-left font-semibold ${r.belumLapor ? "text-slate-400" : "text-slate-700"}`}>
+                        <span className="pl-2">{r.foto ? <a href={r.foto} target="_blank" rel="noreferrer" className="hover:underline">{r.mc}</a> : r.mc}</span>
+                        {!r.matched && (
+                          <div className="pl-2 text-[10px] font-normal text-amber-700">
+                            {r.opsi.length ? `mungkin: ${r.opsi.join(" / ")} · ` : "tidak ada di daftar resmi · "}RGE branch {r.branch || "—"} · bisa dikoreksi di Google Sheet
+                          </div>
+                        )}
+                      </td>
+                      <td className={`${td} text-left`}>{r.rge}</td>
+                      <td className={td}>{r.belumLapor ? "belum lapor" : r.tanggal}</td>
+                      {KPI_STOK_ITEMS.map(([k]) => {
+                        const v = r.items[k];
+                        return <td key={k} className={`${td} ${v === 0 ? "text-rose-600 font-bold bg-rose-50" : ""}`}>{v === undefined ? <span className="text-slate-300">—</span> : v}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>
-          {data.stok.length === 0 && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan stok. Format: <b>stok</b> → nama MC → Poster SP IM3: n, dst.</p>}
+          {data.stok.length === 0 && !stokSemuaMC && <p className="text-sm text-slate-400 italic mt-3">Belum ada laporan stok. Format: <b>stok</b> → nama MC → Poster SP IM3: n, dst.</p>}
         </div>
       </div>
 
