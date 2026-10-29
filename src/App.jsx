@@ -1505,7 +1505,7 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
       : {
           spIM3: Number(hasilSpIM3) || 0,
           sp3ID: Number(hasilSp3ID) || 0,
-          hifi: Number(hasilHifi) || 0,
+          hifi: 0, // FWA/Hifi hanya dihitung dari laporan grup WA (kata kunci fwa), bukan input form web
         };
     await onEdit(activity.id, { hasil });
     setSavingHasil(false);
@@ -1702,15 +1702,12 @@ function ActivityDetailModal({ activity, member, members, rgeReports, onClose, o
                 </Field>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Field label="Jualan SP IM3">
                   <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilSpIM3} onChange={(e) => setHasilSpIM3(e.target.value)} placeholder="0" />
                 </Field>
                 <Field label="Jualan SP 3ID">
                   <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilSp3ID} onChange={(e) => setHasilSp3ID(e.target.value)} placeholder="0" />
-                </Field>
-                <Field label="Jualan Hifi">
-                  <input type="number" min="0" inputMode="numeric" style={inputStyle} value={hasilHifi} onChange={(e) => setHasilHifi(e.target.value)} placeholder="0" />
                 </Field>
               </div>
             )}
@@ -2458,6 +2455,9 @@ function buildRekapBulanan({ activities, members, rgeReports = [], cursor, branc
     const hasilLink = reports.reduce((acc, r) => addHasil(acc, hasilFromReport(r)), emptyHasil());
     const hasil = emptyHasil();
     HASIL_FIELDS.forEach(([k]) => { hasil[k] = hasilWeb[k] > 0 ? hasilWeb[k] : hasilLink[k]; });
+    // Hifi/FWA hanya dihitung dari kegiatan berjenis FWA (laporan grup FWA). "Jualan Hifi" yang terisi di
+    // kegiatan DTU/Desa/School/Event/Branding diabaikan supaya total FWA di Excel = kolom FWA di tabel KPI.
+    if (normalizeJenisKegiatan(a.jenisKegiatan) !== "FWA") hasil.hifi = 0;
     const links = reports.map((r) => r.FotoURL || r.fotoUrl).filter(Boolean);
     entries.push({
       tanggal: a.date, memberId: a.assignedMemberId, rge: mem?.name || "(tanpa PIC)", branch: mem?.branch || "",
@@ -2541,10 +2541,47 @@ function exportRekapExcel({ activities, members, rgeReports, cursor, branchFilte
   ws3["!cols"] = [12, 16, 24, 16, 38, ...HASIL_FIELDS.map(() => 10), 10, 11, 16].map((w) => ({ wch: w }));
   ws3["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(body3.length, 1), c: h3.length - 1 } }) };
 
+  // Sheet 4: detail FWA per unit (MSISDN + IMEI) untuk pelaporan ke pusat. Satu baris = satu pasangan.
+  const monthPrefixFwa = monthKey;
+  const fwaRows = [];
+  rgeReports.forEach((r) => {
+    if (String(r.Kategori || r.category || "").toLowerCase() !== "fwa") return;
+    const date = reportDateLocal(r);
+    if (!date || !date.startsWith(monthPrefixFwa)) return;
+    const mem = resolveMemberForReport(r, members);
+    const branch = mem?.branch || r.Branch || r.branch || "";
+    if (!mem && (!branch || String(branch).toUpperCase() === "TIDAK TERDAFTAR")) return;
+    if (branchFilter && branch !== branchFilter) return;
+    // Ambil pasangan dari teks caption berurutan: "Msisdn : x" lalu "Imei : y" (urutan penulisan di WA dipertahankan).
+    const raw = String(r.RawCaption ?? r.rawCaption ?? "");
+    const tokens = [...raw.matchAll(/(msisdn|imei)\s*:?\s*(\d+)/gi)].map((m) => [m[1].toLowerCase(), m[2]]);
+    const pairs = []; let cur = null;
+    tokens.forEach(([k, v]) => {
+      if (cur && cur[k] === undefined) cur[k] = v;
+      else { cur = { [k]: v }; pairs.push(cur); }
+    });
+    if (!pairs.length && (r.Msisdn || r.Imei)) pairs.push({ msisdn: String(r.Msisdn || ""), imei: String(r.Imei || "") });
+    const url = r.FotoURL || r.fotoUrl;
+    pairs.forEach((p) => fwaRows.push({ date, ts: String(r.Timestamp || ""), branch, rge: mem?.name || r.NamaRGE || r.Sender || "", msisdn: p.msisdn || "", imei: p.imei || "", url }));
+  });
+  fwaRows.sort((a, b) => a.date.localeCompare(b.date) || a.rge.localeCompare(b.rge) || a.ts.localeCompare(b.ts));
+  const cntMsisdn = {}; fwaRows.forEach((x) => { if (x.msisdn) cntMsisdn[x.msisdn] = (cntMsisdn[x.msisdn] || 0) + 1; });
+  const txt = (v) => ({ t: "s", v: String(v) }); // teks supaya angka panjang & awalan 0 tidak berubah
+  const h4 = ["No", "Tanggal", "Branch", "RGE", "MSISDN", "IMEI", "Catatan", "Link Foto"];
+  const body4 = fwaRows.map((x, i) => [
+    i + 1, x.date, x.branch, x.rge, txt(x.msisdn), txt(x.imei),
+    !x.msisdn || !x.imei ? "Data tidak lengkap" : cntMsisdn[x.msisdn] > 1 ? "MSISDN ganda" : "",
+    x.url ? { t: "s", v: "Buka foto", l: { Target: x.url } } : "",
+  ]);
+  const ws4 = XLSX.utils.aoa_to_sheet([h4, ...body4, ["", "", "", "TOTAL UNIT", body4.length]]);
+  ws4["!cols"] = [6, 12, 16, 26, 18, 20, 18, 14].map((w) => ({ wch: w }));
+  ws4["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(body4.length, 1), c: h4.length - 1 } }) };
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws1, "Rekap per RGE");
   XLSX.utils.book_append_sheet(wb, ws2, "Rekap per Jenis");
   XLSX.utils.book_append_sheet(wb, ws3, "Detail Laporan");
+  XLSX.utils.book_append_sheet(wb, ws4, "Detail FWA");
   XLSX.writeFile(wb, `Rekap-Laporan-RGE-${monthKey}${branchFilter ? "-" + branchFilter.replace(/\s+/g, "") : ""}.xlsx`);
   return { entries: entries.length, rge: rows.length };
 }
