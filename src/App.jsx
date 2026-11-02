@@ -2589,8 +2589,17 @@ function exportRekapExcel({ activities, members, rgeReports, cursor, branchFilte
 // Galeri PDF: membuka halaman cetak rapi (dikelompokkan per RGE) lalu memanggil dialog cetak browser;
 // pilih "Save as PDF / Simpan sebagai PDF". Tidak butuh library tambahan.
 function printGaleriPdf({ activities, members, rgeReports, cursor, branchFilter = null, jenisFilter = null }) {
-  const win = window.open("", "_blank");
+  // Susun isi halaman DULU (di try/catch), baru buka tab -- supaya kalau ada error tidak berakhir jadi tab kosong.
+  let html;
+  try { html = buildGaleriPdfHtml({ activities, members, rgeReports, cursor, branchFilter, jenisFilter }); }
+  catch (ex) { console.error("Galeri PDF gagal disusun:", ex); alert("Galeri PDF gagal disusun: " + (ex?.message || ex) + "\nBuka Console (F12) untuk detail."); return true; }
+  const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+  const win = window.open(url, "_blank");
   if (!win) return false; // pop-up diblokir browser
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+  return true;
+}
+function buildGaleriPdfHtml({ activities, members, rgeReports, cursor, branchFilter = null, jenisFilter = null }) {
   const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const photos = collectGaleriPhotos({ activities, members, rgeReports, cursor, branchFilter, jenisFilter });
   const { rows } = buildRekapBulanan({ activities, members, rgeReports, cursor, branchFilter });
@@ -2626,7 +2635,7 @@ function printGaleriPdf({ activities, members, rgeReports, cursor, branchFilter 
 
   const body = groups.map((g) => `<section class="grp"><h2>${esc(g.nama)} <span>${esc(g.branch)}</span></h2><div class="sum">${g.items.length} foto · ${esc(sumLine(rowOf(g.mem?.id, g.nama)))}</div><div class="grid">${cards(g)}</div></section>`).join("");
 
-  win.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Galeri Laporan RGE ${esc(periode)}</title><style>
+  return (`<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Galeri Laporan RGE ${esc(periode)}</title><style>
 @page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:12px}
 h1{font-size:18px;margin:0}.meta{color:#64748b;font-size:11px;margin:2px 0 10px}
 table{border-collapse:collapse;width:100%;font-size:10px;margin-bottom:14px}th,td{border:1px solid #cbd5e1;padding:4px 5px;text-align:center}th{background:#e0e7ff}td.l{text-align:left}
@@ -2643,8 +2652,6 @@ ${body || '<p style="color:#64748b">Belum ada foto untuk filter ini.</p>'}
 <script>(function(){var imgs=[].slice.call(document.images),n=imgs.length,done=0,st=document.getElementById('st');function fin(){st.textContent='Siap dicetak ('+n+' foto)';}
 function tick(){done++;st.textContent='Memuat foto '+done+'/'+n+'…';if(done>=n){fin();setTimeout(function(){window.print();},300);}}
 if(!n){fin();}else{imgs.forEach(function(i){if(i.complete){tick();}else{i.onload=tick;i.onerror=tick;}});setTimeout(function(){if(done<n){fin();}},15000);}})();<\/script></body></html>`);
-  win.document.close();
-  return true;
 }
 
 function LaporanRekapPage({ activities, members, rgeReports, reportsError = "", onOpenActivity }) {
