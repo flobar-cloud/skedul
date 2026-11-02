@@ -2611,8 +2611,10 @@ function buildGaleriPdfHtml({ activities, members, rgeReports, cursor, branchFil
   const gmap = new Map();
   photos.forEach((ph) => {
     const mem = members.find((m) => m.id === ph.assignedMemberId);
-    const key = mem?.id || `x:${ph.uploadedBy}`;
-    if (!gmap.has(key)) { const g = { key, mem, nama: mem?.name || ph.uploadedBy || "(tidak dikenal)", branch: mem?.branch || "", items: [] }; gmap.set(key, g); groups.push(g); }
+    // uploadedBy bisa berupa objek (mis. {name, ...}) pada foto web -- ambil teks namanya saja.
+    const ub = ph.uploadedBy; const ubText = typeof ub === "string" || typeof ub === "number" ? String(ub) : (ub && (ub.name || ub.nama || ub.displayName)) || "";
+    const key = mem?.id || `x:${ubText}`;
+    if (!gmap.has(key)) { const g = { key, mem, nama: String(mem?.name || ubText || "(tidak dikenal)"), branch: String(mem?.branch || ""), items: [] }; gmap.set(key, g); groups.push(g); }
     gmap.get(key).items.push(ph);
   });
   groups.sort((a, b) => branchRank(a.branch) - branchRank(b.branch) || a.branch.localeCompare(b.branch) || a.nama.localeCompare(b.nama));
